@@ -34,3 +34,4 @@ experiment_rag/output/
 # Submissions (runtime data)
 experiment_asi/submissions/poisoned/
 experiment_asi/submissions/normal/
+submissions/
