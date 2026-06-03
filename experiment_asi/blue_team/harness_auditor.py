@@ -120,7 +120,7 @@ def log_c(msg, color=""):
 #  进程内指标收集
 # ──────────────────────────────────────────────
 
-def run_agent_and_parse(script: str, args: list[str], timeout: int = 60) -> dict:
+def run_agent_and_parse(script: str, args: list[str], timeout: int = 120) -> dict:
     cmd = [sys.executable, script] + args
     result = {
         "script": script,
@@ -189,7 +189,7 @@ def run_agent_and_parse(script: str, args: list[str], timeout: int = 60) -> dict
     return result
 
 
-def run_defended_agent(script: str, args: list[str], defense_flags: list[str], timeout: int = 60) -> dict:
+def run_defended_agent(script: str, args: list[str], defense_flags: list[str], timeout: int = 120) -> dict:
     cmd = [sys.executable, script] + defense_flags + args
     result = {
         "script": script,

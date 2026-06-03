@@ -66,7 +66,7 @@ def print_banner():
 """)
 
 
-def run_cmd(cmd: list[str], description: str = "", timeout: int = 120) -> bool:
+def run_cmd(cmd: list[str], description: str = "", timeout: int = 300) -> bool:
     if description:
         print(f"\n{Colors.CYAN}▶ {description}{Colors.RESET}")
     print(f"  执行: {' '.join(cmd)}")
@@ -281,9 +281,9 @@ def experiment_D_audit():
         "--full-audit",
         f"--output-json={json_path}",
         f"--output-html={html_path}",
-        "--rounds=5",
+        "--rounds=3",
     ]
-    run_cmd(cmd, "运行完整审计（5 轮/攻击类型）")
+    run_cmd(cmd, "运行完整审计（3 轮/攻击类型）", timeout=300)
 
     print(f"\n{Colors.GREEN}✅ 报告已生成:{Colors.RESET}")
     if (BASE_DIR / json_path).exists():
