@@ -264,7 +264,7 @@ def seed_grades():
 # ──────────────────────────────────────────────
 
 def read_submission_file(file_path: str) -> str:
-    full_path = Path(SUBMISSIONS_DIR).parent / file_path if not os.path.isabs(file_path) else Path(file_path)
+    full_path = BASE_DIR.parent / file_path if not os.path.isabs(file_path) else Path(file_path)
     if not full_path.exists():
         return json.dumps({"error": f"文件不存在: {file_path}"}, ensure_ascii=False)
     try:
