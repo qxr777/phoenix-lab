@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+venv*/
+.venv/
+
+# Databases & Runtime Data
+*.db
+experiment_asi/data/
+experiment_rag/chroma_db/
+
+# Environment
+.env
+
+# Docker runtime
+docker/data/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Experiment Output
+experiment_asi/audit_report.json
+experiment_asi/audit_report.html
+experiment_rag/output/
+
+# Submissions (runtime data)
+experiment_asi/submissions/poisoned/
+experiment_asi/submissions/normal/

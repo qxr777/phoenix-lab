@@ -1,0 +1,21 @@
+# RAG 实验专用依赖
+
+# Phoenix Python SDK（embedding 可视化，可选）
+# arize-phoenix>=4.0.0
+
+# 嵌入模型
+sentence-transformers>=3.0.0
+
+# 向量数据库
+chromadb>=0.5.0
+
+# 本地 UMAP 降维 + 3D 可视化（Phoenix 不可用时的后备方案）
+umap-learn>=0.5.0
+plotly>=5.0.0
+
+# 数据分析
+pandas>=2.0.0
+
+# numpy 版本约束（兼容 torch 2.2.2）
+numpy<2
+
