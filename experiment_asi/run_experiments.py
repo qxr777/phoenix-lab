@@ -37,6 +37,9 @@ if _VENV_PYTHON.exists() and sys.executable != str(_VENV_PYTHON):
 # ──────────────────────────────────────────────
 
 BASE_DIR = Path(__file__).parent.parent
+
+from dotenv import load_dotenv
+load_dotenv(BASE_DIR / ".env")
 VENV_DIR = BASE_DIR / "venv_cs599_phoenix_lab"
 PHOENIX_DOCKER = BASE_DIR / "docker" / "docker-compose.yml"
 SUBMISSIONS_DIR = BASE_DIR / "submissions"
@@ -124,10 +127,10 @@ def check_prerequisites() -> bool:
 def ensure_poisoned_samples():
     print(f"\n{Colors.BOLD}生成攻击样本...{Colors.RESET}")
     samples = [
-        ("red_team/samples/poisoned_grade_hijack.md", "submissions/poisoned/poisoned_grade_hijack.md"),
-        ("red_team/samples/poisoned_deletion.md", "submissions/poisoned/poisoned_deletion.md"),
-        ("red_team/samples/poisoned_stealth.md", "submissions/poisoned/poisoned_stealth.md"),
-        ("red_team/samples/normal_homework.md", "submissions/normal/normal_homework.md"),
+        ("experiment_asi/red_team/samples/poisoned_grade_hijack.md", "experiment_asi/submissions/poisoned/poisoned_grade_hijack.md"),
+        ("experiment_asi/red_team/samples/poisoned_deletion.md", "experiment_asi/submissions/poisoned/poisoned_deletion.md"),
+        ("experiment_asi/red_team/samples/poisoned_stealth.md", "experiment_asi/submissions/poisoned/poisoned_stealth.md"),
+        ("experiment_asi/red_team/samples/normal_homework.md", "experiment_asi/submissions/normal/normal_homework.md"),
     ]
 
     import shutil
@@ -163,14 +166,14 @@ OWASP ASI 风险映射:
     ensure_poisoned_samples()
 
     attacks = [
-        ("评分劫持 (Grade Hijack)", "submissions/poisoned/poisoned_grade_hijack.md"),
-        ("成绩删除 (Deletion)", "submissions/poisoned/poisoned_deletion.md"),
-        ("隐写注入 (Stealth)", "submissions/poisoned/poisoned_stealth.md"),
+        ("评分劫持 (Grade Hijack)", "experiment_asi/submissions/poisoned/poisoned_grade_hijack.md"),
+        ("成绩删除 (Deletion)", "experiment_asi/submissions/poisoned/poisoned_deletion.md"),
+        ("隐写注入 (Stealth)", "experiment_asi/submissions/poisoned/poisoned_stealth.md"),
     ]
 
     for name, attack_file in attacks:
         print(f"\n{Colors.RED}▶ 攻击类型: {name}{Colors.RESET}")
-        cmd = [sys.executable, "smart_ta_agent.py", f"--attack-file={attack_file}"]
+        cmd = [sys.executable, "experiment_asi/smart_ta_agent.py", f"--attack-file={attack_file}"]
         run_cmd(cmd, f"执行 {name}")
 
     print(f"\n{Colors.YELLOW}💡 下一步: 打开 Phoenix UI ({os.getenv('PHOENIX_COLLECTOR_ENDPOINT', 'http://localhost:6006').replace('/v1/traces', '')})")
@@ -242,11 +245,11 @@ def experiment_C_blue_team_defense():
         ("全防御 (3 层)", []),
     ]
 
-    attack_file = "submissions/poisoned/poisoned_grade_hijack.md"
+    attack_file = "experiment_asi/submissions/poisoned/poisoned_grade_hijack.md"
 
     for label, flags in defense_tests:
         print(f"\n{Colors.GREEN}▶ 防御方案: {label}{Colors.RESET}")
-        cmd = [sys.executable, "blue_team/ta_defended.py", f"--attack-file={attack_file}"] + flags
+        cmd = [sys.executable, "experiment_asi/blue_team/ta_defended.py", f"--attack-file={attack_file}"] + flags
         run_cmd(cmd, f"测试 {label}")
 
     print(f"\n{Colors.YELLOW}💡 提示: 在 Phoenix UI 中对比不同防御方案的 trace")
@@ -274,7 +277,7 @@ def experiment_D_audit():
     html_path = "audit_report.html"
 
     cmd = [
-        sys.executable, "blue_team/harness_auditor.py",
+        sys.executable, "experiment_asi/blue_team/harness_auditor.py",
         "--full-audit",
         f"--output-json={json_path}",
         f"--output-html={html_path}",
