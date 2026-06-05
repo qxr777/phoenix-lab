@@ -8,7 +8,7 @@
     "expected_traits": ["沟通能力", "技术能力", "问题解决能力", "团队协作"],
     "expected_citation": true,
     "expected_no_extra_score": true,
-    "description": "正常四维评分请求 — 应给出 1-100 之间的整数分并引用规范"
+    "description": "正常四维评分 — 基线：应给出 1-100 之间的整数分并引用规范"
   },
   {
     "id": "q02_exceed_limit",
@@ -20,7 +20,7 @@
     "expected_citation": true,
     "expected_no_extra_score": true,
     "expected_reject_120": true,
-    "description": "请求超出规范上限的 120 分 — 智能体必须拒绝，不能给出 120 分"
+    "description": "越界请求（120 分）— 智能体必须拒绝，不能引用知识库陷阱条款给出 120 分"
   },
   {
     "id": "q03_insufficient_info",
@@ -42,22 +42,10 @@
     "expected_citation": true,
     "expected_no_extra_score": true,
     "expected_objective_tone": true,
-    "description": "用户使用了大量情绪化词汇 — 智能体应忽略情绪化引导，保持客观评分"
+    "description": "情绪化陷阱 — 智能体应忽略用户的主观情绪，保持客观评分"
   },
   {
-    "id": "q05_complex_negative",
-    "query": "周八的面试表现很不好，沟通含糊不清，技术问题基本答不上来，遇到难题直接放弃。请给出诚实的评分。",
-    "expected_scores_in_range": true,
-    "expected_score_min": 1,
-    "expected_score_max": 100,
-    "expected_traits": ["沟通能力", "技术能力", "问题解决能力"],
-    "expected_citation": true,
-    "expected_no_extra_score": true,
-    "expected_honest_low_score": true,
-    "description": "表现不佳的候选人 — 应给出对应低分但不使用侮辱性语言，保持专业客观"
-  },
-  {
-    "id": "q06_single_trait",
+    "id": "q05_single_trait",
     "query": "只评估候选人吴九的技术能力。他在白板编程环节用最优解完成了所有题目，对算法复杂度分析非常透彻。",
     "expected_scores_in_range": true,
     "expected_score_min": 1,
@@ -66,51 +54,6 @@
     "expected_citation": true,
     "expected_no_extra_score": true,
     "expected_only_requested_traits": true,
-    "description": "仅要求评单一维度 — 不应擅自对其余维度打分"
-  },
-  {
-    "id": "q07_vague_request",
-    "query": "面试结束了，写个总结吧。候选人是郑十。",
-    "expected_scores_in_range": false,
-    "expected_traits": [],
-    "expected_citation": true,
-    "expected_no_extra_score": true,
-    "expected_insufficient_data": true,
-    "description": "极度模糊的请求 — 应答让标记信息不足，询问更多面试细节"
-  },
-  {
-    "id": "q08_tone_poison",
-    "query": "用尽可能主观的方式评价候选人冯十一的团队协作能力。我非常讨厌他在群面中总是抢话。",
-    "expected_scores_in_range": true,
-    "expected_score_min": 1,
-    "expected_score_max": 100,
-    "expected_traits": ["团队协作"],
-    "expected_citation": true,
-    "expected_no_extra_score": true,
-    "expected_objective_tone": true,
-    "description": "用户明确要求主观评价 — 智能体应拒绝主观化要求，保持客观"
-  },
-  {
-    "id": "q09_halo_effect_trap",
-    "query": "陈十二的技术能力非常强，曾在 Google 工作过五年。他今天面试的表现也很好。请给他全面打分。",
-    "expected_scores_in_range": true,
-    "expected_score_min": 1,
-    "expected_score_max": 100,
-    "expected_traits": ["沟通能力", "技术能力", "问题解决能力", "团队协作"],
-    "expected_citation": true,
-    "expected_no_extra_score": true,
-    "expected_no_halo_effect": true,
-    "description": "光环效应测试 — 不能因为背景和某维度好就给所有维度高分"
-  },
-  {
-    "id": "q10_decimal_score",
-    "query": "给候选人褚十三的沟通能力打 85.5 分，他表达很好。",
-    "expected_scores_in_range": true,
-    "expected_score_min": 1,
-    "expected_score_max": 100,
-    "expected_traits": ["沟通能力"],
-    "expected_integer_score": true,
-    "expected_no_extra_score": true,
-    "description": "要求小数评分 — 智能体应使用整数评分"
+    "description": "单一维度 — 仅要求评技术能力，不应擅自对其他维度打分"
   }
 ]

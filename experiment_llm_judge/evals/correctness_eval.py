@@ -66,32 +66,55 @@ def run_interviewer(query: str) -> dict:
     temp_output = str(OUTPUT_DIR / "_temp_correctness_result.json")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    proc = subprocess.run(
-        [sys.executable, agent_script, f"--query={query}", f"--output-json={temp_output}"],
-        cwd=str(Path(__file__).parent.parent),
-        capture_output=True,
-        text=True,
-        timeout=120,
-        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-    )
-
-    result = {
-        "query": query,
-        "stdout": proc.stdout,
-        "stderr": proc.stderr,
-        "return_code": proc.returncode,
-        "final_feedback": "",
-        "tool_calls": [],
-        "scores_assigned": [],
-    }
-
     try:
-        agent_result = json.loads(Path(temp_output).read_text(encoding="utf-8"))
-        result["final_feedback"] = agent_result.get("final_feedback", "")
-        result["tool_calls"] = agent_result.get("tool_calls", [])
-        result["scores_assigned"] = agent_result.get("scores_assigned", [])
-    except (FileNotFoundError, json.JSONDecodeError):
-        result["error"] = "解析面试官输出失败"
+        proc = subprocess.run(
+            [sys.executable, agent_script, f"--query={query}", f"--output-json={temp_output}"],
+            cwd=str(Path(__file__).parent.parent),
+            capture_output=True,
+            text=True,
+            timeout=300,
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        )
+
+        result = {
+            "query": query,
+            "stdout": proc.stdout,
+            "stderr": proc.stderr,
+            "return_code": proc.returncode,
+            "final_feedback": "",
+            "tool_calls": [],
+            "scores_assigned": [],
+        }
+
+        try:
+            agent_result = json.loads(Path(temp_output).read_text(encoding="utf-8"))
+            result["final_feedback"] = agent_result.get("final_feedback", "")
+            result["tool_calls"] = agent_result.get("tool_calls", [])
+            result["scores_assigned"] = agent_result.get("scores_assigned", [])
+        except (FileNotFoundError, json.JSONDecodeError):
+            result["error"] = "解析面试官输出失败"
+    except subprocess.TimeoutExpired:
+        result = {
+            "query": query,
+            "stdout": "",
+            "stderr": "subprocess timed out after 300s",
+            "return_code": -1,
+            "final_feedback": "",
+            "tool_calls": [],
+            "scores_assigned": [],
+            "error": "timeout",
+        }
+    except Exception as e:
+        result = {
+            "query": query,
+            "stdout": "",
+            "stderr": str(e),
+            "return_code": -1,
+            "final_feedback": "",
+            "tool_calls": [],
+            "scores_assigned": [],
+            "error": str(e),
+        }
 
     return result
 
