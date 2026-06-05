@@ -283,7 +283,7 @@ def experiment_D_audit():
         f"--output-html={html_path}",
         "--rounds=3",
     ]
-    run_cmd(cmd, "运行完整审计（3 轮/攻击类型）", timeout=300)
+    run_cmd(cmd, "运行完整审计（3 轮/攻击类型）", timeout=1200)
 
     print(f"\n{Colors.GREEN}✅ 报告已生成:{Colors.RESET}")
     if (BASE_DIR / json_path).exists():

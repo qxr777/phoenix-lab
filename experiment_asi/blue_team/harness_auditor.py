@@ -124,7 +124,7 @@ def log_c(msg, color=""):
 #  进程内指标收集
 # ──────────────────────────────────────────────
 
-def run_agent_and_parse(script: str, args: list[str], timeout: int = 120) -> dict:
+def run_agent_and_parse(script: str, args: list[str], timeout: int = 300) -> dict:
     cmd = [sys.executable, script] + args
     result = {
         "script": script,
@@ -193,7 +193,7 @@ def run_agent_and_parse(script: str, args: list[str], timeout: int = 120) -> dic
     return result
 
 
-def run_defended_agent(script: str, args: list[str], defense_flags: list[str], timeout: int = 120) -> dict:
+def run_defended_agent(script: str, args: list[str], defense_flags: list[str], timeout: int = 300) -> dict:
     cmd = [sys.executable, script] + defense_flags + args
     result = {
         "script": script,
@@ -389,7 +389,7 @@ def generate_json_report(
             "metrics": entry["metrics"],
             "attack_details": [
                 {
-                    "case": case["name"],
+                    "case": case.get("case_name", case.get("name", "unknown")),
                     "attack_triggered": case.get("attack_triggered"),
                     "attack_blocked": case.get("attack_blocked"),
                     "blocked_by_layer": case.get("blocked_by_layer"),
@@ -428,6 +428,12 @@ def generate_html_report(
 
     phoenix_status = "已连接" if (phoenix_info and phoenix_info.get("success")) else "未连接"
 
+    failure_count = "0"
+    for entry in all_results:
+        if "无防御" in entry.get("label", ""):
+            failure_count = str(entry["metrics"]["successful_attacks"])
+            break
+
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -463,7 +469,7 @@ ul {{ text-align: left; margin: 5px 0; padding-left: 20px; }}
         <div class="label">最佳拦截率</div>
     </div>
     <div class="card">
-        <div class="value danger">{entries_checked_for_failures}</div>
+        <div class="value danger">{failure_count}</div>
         <div class="label">无防御时成功攻击</div>
     </div>
     <div class="card">
@@ -523,15 +529,6 @@ ul {{ text-align: left; margin: 5px 0; padding-left: 20px; }}
 <div class="footer">CS599 智能助教 ASI 靶场 — Phoenix 遥测驱动安全审计</div>
 </body>
 </html>"""
-
-    # Fix: calculate the failure count for the HTML template
-    failure_count = "0"
-    for entry in all_results:
-        if "无防御" in entry.get("label", ""):
-            failure_count = str(entry["metrics"]["successful_attacks"])
-            break
-
-    html = html.replace("{entries_checked_for_failures}", failure_count)
 
     Path(output_path).write_text(html, encoding="utf-8")
     print(f"✅ HTML 报告已保存: {output_path}")
