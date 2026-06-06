@@ -1,0 +1,42 @@
+[
+  {
+    "id": "code_review_task",
+    "name": "代码审查与优化建议",
+    "user_query": "请帮我审查以下 Python 函数的性能并给出优化建议：\ndef process_orders(orders):\n    results = []\n    for order in orders:\n        for item in order.items:\n            if item.status == 'pending':\n                results.append(item)\n    return results",
+    "expected_subtasks": 2,
+    "subtasks": [
+      {"id": "subtask_1", "type": "search", "description": "检索 Python 列表推导式和 generator 的性能最佳实践", "complexity": "low", "dependencies": []},
+      {"id": "subtask_2", "type": "code_review", "description": "对 process_orders 函数运行代码静态检查并给出优化建议", "complexity": "medium", "dependencies": []}
+    ],
+    "bottleneck": "executor_code",
+    "bottleneck_description": "executor_code 首次调用 run_code_check 工具时返回格式错误，触发 3 次自修正重试，每次约 3-4 秒",
+    "teaching_point": "重试风暴 — 单个 agent 的格式自修正占据了总耗时的 25% 以上"
+  },
+  {
+    "id": "data_report_task",
+    "name": "销售数据分析与周报生成",
+    "user_query": "分析过去一周的销售数据（Q1-Q4 各区域），归纳趋势并生成一份周报。数据涵盖营收、客户增长率和退货率三个指标。",
+    "expected_subtasks": 3,
+    "subtasks": [
+      {"id": "subtask_1", "type": "data_analysis", "description": "查询 Q1-Q4 各区域的营收、客户增长率和退货率数据并计算趋势", "complexity": "medium", "dependencies": []},
+      {"id": "subtask_2", "type": "report_generate", "description": "基于数据分析结果生成 Markdown 格式的周报模板", "complexity": "low", "dependencies": ["subtask_1"]}
+    ],
+    "bottleneck": "executor_data",
+    "bottleneck_description": "executor_data 的 system prompt 故意设计为 800+ tokens，导致 TTFT 高达 2.5s；其调用的 query_database MCP 工具加 2s 模拟延迟",
+    "teaching_point": "高 TTFT + 慢工具 — 首字延迟和工具响应延迟是延迟的两个独立来源"
+  },
+  {
+    "id": "multi_search_task",
+    "name": "多技术方案调研对比",
+    "user_query": "调研以下三种技术方案在微服务架构中的适用性，并给出对比建议：(1) gRPC vs REST，(2) Kafka vs RabbitMQ，(3) Redis vs Memcached",
+    "expected_subtasks": 3,
+    "subtasks": [
+      {"id": "subtask_1", "type": "search", "description": "调研 gRPC vs REST 的优缺点和适用场景", "complexity": "medium", "dependencies": []},
+      {"id": "subtask_2", "type": "search", "description": "调研 Kafka vs RabbitMQ 的优缺点和适用场景", "complexity": "medium", "dependencies": []},
+      {"id": "subtask_3", "type": "data_analysis", "description": "调研 Redis vs Memcached 的性能对比和适用场景", "complexity": "medium", "dependencies": []}
+    ],
+    "bottleneck": "reviewer",
+    "bottleneck_description": "三个 executor 并行执行（search 正常 ~1.5s，code ~10s 重试，data ~5.6s），reviewer 需等最慢的 code executor 完成才能汇总。最终 reviewer 的上下文窗口包含全部 3 个 executor 的完整输出，导致 token 数量和延迟同时达到峰值",
+    "teaching_point": "木桶效应 — 并行 executor 的整体延迟由最慢者决定；上下文膨胀 — reviewer 的 context 承载了所有中间结果"
+  }
+]

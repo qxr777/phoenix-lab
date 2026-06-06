@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>关键路径分析 — A2A 多智能体</title>
+<style>
+body{font-family:-apple-system,sans-serif;max-width:1100px;margin:40px auto;padding:0 20px;background:#0d1117;color:#c9d1d9}
+h1{color:#58a6ff;border-bottom:1px solid #30363d;padding-bottom:10px}
+table{width:100%;border-collapse:collapse;margin:20px 0}
+th,td{border:1px solid #30363d;padding:10px 14px;text-align:left}
+th{background:#161b22;color:#58a6ff}
+tr:hover{background:#1c2129}
+</style></head>
+<body>
+<h1>⏱️ 关键路径分析 — A2A 多智能体分布式追溯</h1>
+<table>
+<thead><tr><th>Agent</th><th>延迟</th><th>占比</th><th>Tokens</th></tr></thead>
+<tbody><tr style="border-top:2px solid #30363d">
+            <td colspan="5" style="font-weight:bold;color:#58a6ff">代码审查与优化建议 (总延迟: 69563ms)</td>
+        </tr>
+        <tr><td colspan="5">
+            🔴 <b>Critical Path:</b> user_request → gateway → planner → reviewer<br>
+            🔴 <b>Bottleneck:</b> reviewer (26797ms / 38.5%)
+        </td></tr>
+        <tr>
+                <td>gateway</td>
+                <td>7171ms</td>
+                <td>
+                    <div style="background:#161b22;border-radius:4px;height:20px;width:100%">
+                        <div style="background:#d2991d;height:20px;width:30%;border-radius:4px"></div>
+                    </div>
+                    10.3%
+                </td>
+                <td>256</td>
+            </tr><tr>
+                <td>planner</td>
+                <td>14037ms</td>
+                <td>
+                    <div style="background:#161b22;border-radius:4px;height:20px;width:100%">
+                        <div style="background:#d2991d;height:20px;width:60%;border-radius:4px"></div>
+                    </div>
+                    20.2%
+                </td>
+                <td>656</td>
+            </tr><tr>
+                <td>reviewer</td>
+                <td>26797ms</td>
+                <td>
+                    <div style="background:#161b22;border-radius:4px;height:20px;width:100%">
+                        <div style="background:#f85149;height:20px;width:100%;border-radius:4px"></div>
+                    </div>
+                    38.5%
+                </td>
+                <td>1153</td>
+            </tr><tr style="border-top:2px solid #30363d">
+            <td colspan="5" style="font-weight:bold;color:#58a6ff">销售数据分析与周报生成 (总延迟: 292377ms)</td>
+        </tr>
+        <tr><td colspan="5">
+            🔴 <b>Critical Path:</b> user_request → gateway → planner → reviewer<br>
+            🔴 <b>Bottleneck:</b> reviewer (34910ms / 11.9%)
+        </td></tr>
+        <tr>
+                <td>gateway</td>
+                <td>6165ms</td>
+                <td>
+                    <div style="background:#161b22;border-radius:4px;height:20px;width:100%">
+                        <div style="background:#3fb950;height:20px;width:6%;border-radius:4px"></div>
+                    </div>
+                    2.1%
+                </td>
+                <td>258</td>
+            </tr><tr>
+                <td>planner</td>
+                <td>20869ms</td>
+                <td>
+                    <div style="background:#161b22;border-radius:4px;height:20px;width:100%">
+                        <div style="background:#3fb950;height:20px;width:21%;border-radius:4px"></div>
+                    </div>
+                    7.1%
+                </td>
+                <td>797</td>
+            </tr><tr>
+                <td>reviewer</td>
+                <td>34910ms</td>
+                <td>
+                    <div style="background:#161b22;border-radius:4px;height:20px;width:100%">
+                        <div style="background:#d2991d;height:20px;width:35%;border-radius:4px"></div>
+                    </div>
+                    11.9%
+                </td>
+                <td>2590</td>
+            </tr><tr style="border-top:2px solid #30363d">
+            <td colspan="5" style="font-weight:bold;color:#58a6ff">多技术方案调研对比 (总延迟: 114629ms)</td>
+        </tr>
+        <tr><td colspan="5">
+            🔴 <b>Critical Path:</b> user_request → gateway → planner → reviewer<br>
+            🔴 <b>Bottleneck:</b> reviewer (37301ms / 32.5%)
+        </td></tr>
+        <tr>
+                <td>gateway</td>
+                <td>6156ms</td>
+                <td>
+                    <div style="background:#161b22;border-radius:4px;height:20px;width:100%">
+                        <div style="background:#3fb950;height:20px;width:16%;border-radius:4px"></div>
+                    </div>
+                    5.4%
+                </td>
+                <td>261</td>
+            </tr><tr>
+                <td>planner</td>
+                <td>18174ms</td>
+                <td>
+                    <div style="background:#161b22;border-radius:4px;height:20px;width:100%">
+                        <div style="background:#d2991d;height:20px;width:47%;border-radius:4px"></div>
+                    </div>
+                    15.9%
+                </td>
+                <td>754</td>
+            </tr><tr>
+                <td>reviewer</td>
+                <td>37301ms</td>
+                <td>
+                    <div style="background:#161b22;border-radius:4px;height:20px;width:100%">
+                        <div style="background:#f85149;height:20px;width:97%;border-radius:4px"></div>
+                    </div>
+                    32.5%
+                </td>
+                <td>1845</td>
+            </tr></tbody>
+</table>
+</body></html>

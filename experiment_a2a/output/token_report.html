@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>Token 成本分析 — A2A 多智能体</title>
+<style>
+body{font-family:-apple-system,sans-serif;max-width:1100px;margin:40px auto;padding:0 20px;background:#0d1117;color:#c9d1d9}
+h1{color:#58a6ff;border-bottom:1px solid #30363d;padding-bottom:10px}
+h2{color:#f0883e;margin-top:30px}
+h3{color:#c9d1d9}
+table{width:100%;border-collapse:collapse;margin:20px 0}
+th,td{border:1px solid #30363d;padding:10px 14px;text-align:center}
+th{background:#161b22;color:#58a6ff}
+tr:hover{background:#1c2129}
+.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:15px;margin:20px 0}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;text-align:center}
+.card .value{font-size:28px;font-weight:bold}
+.card .label{font-size:13px;color:#8b949e;margin-top:6px}
+ul{line-height:1.8}
+</style></head>
+<body>
+<h1>📊 Token 成本控制 — A2A 多智能体</h1>
+<h2>代码审查与优化建议</h2>
+<div class="summary">
+    <div class="card"><div class="value">1,459</div><div class="label">Prompt Tokens</div></div>
+    <div class="card"><div class="value">606</div><div class="label">Completion Tokens</div></div>
+    <div class="card"><div class="value">2,065</div><div class="label">Total Tokens</div></div>
+    <div class="card"><div class="value" style="color:#d2991d">41.5%</div><div class="label">上下文利用率</div></div>
+</div>
+<h3>逐轮 Token 曲线</h3>
+<table>
+<thead><tr><th>轮次</th><th>Agent</th><th>Prompt</th><th>Completion</th><th>累积 Prompt</th><th>延迟</th></tr></thead>
+<tbody><tr>
+                <td>1</td>
+                <td>gateway</td>
+                <td>184</td>
+                <td>72</td>
+                <td>184</td>
+                <td>7171ms</td>
+            </tr><tr>
+                <td>2</td>
+                <td>planner</td>
+                <td>474</td>
+                <td>182</td>
+                <td>658</td>
+                <td>14037ms</td>
+            </tr><tr>
+                <td>3</td>
+                <td>reviewer</td>
+                <td>801</td>
+                <td>352</td>
+                <td>1,459</td>
+                <td>26797ms</td>
+            </tr></tbody>
+</table>
+<h3>优化建议</h3>
+<ul><li style="color:#3fb950">[healthy] 当前 Token 消耗处于健康水平，暂无优化建议 (预计节省: 0)</li></ul>
+<hr><h2>销售数据分析与周报生成</h2>
+<div class="summary">
+    <div class="card"><div class="value">2,903</div><div class="label">Prompt Tokens</div></div>
+    <div class="card"><div class="value">742</div><div class="label">Completion Tokens</div></div>
+    <div class="card"><div class="value">3,645</div><div class="label">Total Tokens</div></div>
+    <div class="card"><div class="value" style="color:#d2991d">25.6%</div><div class="label">上下文利用率</div></div>
+</div>
+<h3>逐轮 Token 曲线</h3>
+<table>
+<thead><tr><th>轮次</th><th>Agent</th><th>Prompt</th><th>Completion</th><th>累积 Prompt</th><th>延迟</th></tr></thead>
+<tbody><tr>
+                <td>1</td>
+                <td>gateway</td>
+                <td>166</td>
+                <td>92</td>
+                <td>166</td>
+                <td>6165ms</td>
+            </tr><tr>
+                <td>2</td>
+                <td>planner</td>
+                <td>475</td>
+                <td>322</td>
+                <td>641</td>
+                <td>20869ms</td>
+            </tr><tr>
+                <td>3</td>
+                <td>reviewer</td>
+                <td>2,262</td>
+                <td>328</td>
+                <td>2,903</td>
+                <td>34910ms</td>
+            </tr></tbody>
+</table>
+<h3>优化建议</h3>
+<ul><li style="color:#d2991d">[prompt_optimize] 上下文利用率仅 25.6%，提示词中可能包含过多冗余信息 (预计节省: 约 20-30% tokens)</li><li style="color:#d2991d">[system_prompt_trim] 部分 agent 的 system prompt 过长（>2000 tokens），建议缩减至 300-500 tokens (预计节省: 约 1500 tokens/agent)</li></ul>
+<hr><h2>多技术方案调研对比</h2>
+<div class="summary">
+    <div class="card"><div class="value">2,032</div><div class="label">Prompt Tokens</div></div>
+    <div class="card"><div class="value">828</div><div class="label">Completion Tokens</div></div>
+    <div class="card"><div class="value">2,860</div><div class="label">Total Tokens</div></div>
+    <div class="card"><div class="value" style="color:#d2991d">40.7%</div><div class="label">上下文利用率</div></div>
+</div>
+<h3>逐轮 Token 曲线</h3>
+<table>
+<thead><tr><th>轮次</th><th>Agent</th><th>Prompt</th><th>Completion</th><th>累积 Prompt</th><th>延迟</th></tr></thead>
+<tbody><tr>
+                <td>1</td>
+                <td>gateway</td>
+                <td>171</td>
+                <td>90</td>
+                <td>171</td>
+                <td>6156ms</td>
+            </tr><tr>
+                <td>2</td>
+                <td>planner</td>
+                <td>481</td>
+                <td>273</td>
+                <td>652</td>
+                <td>18174ms</td>
+            </tr><tr>
+                <td>3</td>
+                <td>reviewer</td>
+                <td>1,380</td>
+                <td>465</td>
+                <td>2,032</td>
+                <td>37301ms</td>
+            </tr></tbody>
+</table>
+<h3>优化建议</h3>
+<ul><li style="color:#3fb950">[healthy] 当前 Token 消耗处于健康水平，暂无优化建议 (预计节省: 0)</li></ul>
+<hr>
+</body></html>
