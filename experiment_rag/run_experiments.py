@@ -3,15 +3,16 @@
 CS599 RAG 实验统一启动器
 
 四个实验阶段:
-  2A: Embedding 降维可视化 (Phoenix UMAP 3D + 本地后备)
+  2A: Embedding 降维可视化 (UMAP + Plotly 交互式 3D)
   2B: 检索失效诊断 (Retrieval Failure Diagnosis)
   2C: 分块策略对比 (Chunking Strategy Comparison)
   2D: 重排效果对比 (Reranking Impact Analysis)
+  2E: 混合检索对比与参数实验 (Dense/Sparse/Hybrid + RRF + 网格搜索)
 
 用法:
-  python run_rag_experiments.py              # 交互式菜单
-  python run_rag_experiments.py -e 2A        # 直接运行实验 2A
-  python run_rag_experiments.py --all        # 运行全部实验
+  python run_experiments.py              # 交互式菜单
+  python run_experiments.py -e 2A        # 直接运行实验 2A
+  python run_experiments.py --all        # 运行全部实验
 """
 
 import os
@@ -124,16 +125,14 @@ def experiment_2A():
     print("\nStep 1: 构建知识库")
     run_step("构建知识库 (chunk_size=512)",
              [sys.executable, "experiment_rag/knowledge_base/build_kb.py",
-              "--chunk-size", "512", "--send-to-phoenix"])
+              "--chunk-size", "512"])
 
     print("\nStep 2: 生成 Embedding 可视化")
     run_step("生成 UMAP 3D 可视化",
-             [sys.executable, "experiment_rag/embedding_viz.py",
-              "--output", "output/embedding_umap_3d.html"])
+             [sys.executable, "experiment_rag/embedding_viz.py"])
 
     print(f"\n{Colors.GREEN}✅ 可视化已生成{Colors.RESET}")
-    print(f"   本地 UMAP: output/embedding_umap_3d.html (浏览器打开)")
-    print(f"   Phoenix: http://localhost:6006 (Traces 面板查看检索详情)")
+    print(f"   UMAP 3D: experiment_rag/output/embedding_umap_3d.html (浏览器打开)")
 
 
 def experiment_2B():
@@ -268,7 +267,7 @@ def show_menu():
   CS599 RAG 实验菜单
 {'=' * 60}{Colors.RESET}
 
-  {Colors.MAGENTA}2A{Colors.RESET}: Embedding 降维可视化 (Phoenix UMAP 3D + 本地后备)
+  {Colors.MAGENTA}2A{Colors.RESET}: Embedding 降维可视化 (UMAP + Plotly 交互式 3D)
   {Colors.RED}2B{Colors.RESET}: 检索失效诊断 (Retrieval Failure Analysis)
   {Colors.GREEN}2C{Colors.RESET}: 分块策略对比 (Chunking Strategy Comparison)
   {Colors.BLUE}2D{Colors.RESET}: 重排效果对比 (Reranking Impact)
@@ -305,7 +304,7 @@ def show_menu():
         elif choice == "setup":
             run_step("构建全部知识库",
                      [sys.executable, "experiment_rag/knowledge_base/build_kb.py",
-                      "--all-sizes", "--send-to-phoenix"])
+                      "--all-sizes"])
         elif choice == "check":
             check_setup()
         elif choice in ("quit", "exit", "q"):

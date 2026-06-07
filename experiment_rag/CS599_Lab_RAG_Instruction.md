@@ -27,7 +27,7 @@
 
 | 阶段 | 核心任务 | 关键工具 | 产出 |
 |------|----------|----------|------|
-| **2A** | 将文档向量和查询向量降维到 3D 空间，可视化聚集状态 | Phoenix Embeddings / UMAP + Plotly | 3D 散点图 |
+| **2A** | 将文档向量和查询向量降维到 3D 空间，可视化聚集状态 | UMAP + Plotly | 交互式 3D 散点图 (HTML) |
 | **2B** | 检测"相似≠相关"的检索失效案例，诊断根因 | LLM-as-Judge | 失效诊断报告 |
 | **2C** | 对比 4 种 chunk_size 对检索精度和幻觉率的影响 | ChromaDB 多集合 | 对比矩阵 |
 | **2D** | 深入理解 Bi-Encoder / Cross-Encoder 两阶段检索原理，验证重排效果 | ms-marco-MiniLM | 重排对比报告 |
@@ -73,13 +73,7 @@ pip install -r requirements_rag.txt
 
 首次运行会下载 `all-MiniLM-L6-v2` (~80MB)。
 
-### 2.2 Phoenix 容器（可选，用于实验 2A 的 UMAP 可视化）
-
-```bash
-cd docker && docker compose up -d
-```
-
-### 2.3 Phoenix UI（查看检索 Trace）
+### 2.2 Phoenix UI（查看检索 Trace）
 
 ```bash
 # 1. 确保 Phoenix Docker 已启动
@@ -98,10 +92,10 @@ ENABLE_PHOENIX_TRACING=true python experiment_rag/rag_agent.py \
 #    展开 "chromadb_retrieval" span → 查看检索到的文档、相似度分数等
 ```
 
-### 2.4 首次构建知识库
+### 2.3 首次构建知识库
 
 ```bash
-python rag_experiment/run_rag_experiments.py
+python experiment_rag/run_experiments.py
 # 选择: setup → 构建全部分块尺寸的知识库
 ```
 
@@ -120,38 +114,17 @@ python rag_experiment/run_rag_experiments.py
 
 ```bash
 # Step 1: 构建知识库
-ENABLE_PHOENIX_TRACING=true python experiment_rag/knowledge_base/build_kb.py --chunk-size 512
+python experiment_rag/knowledge_base/build_kb.py --chunk-size 512
 
-# Step 2: 运行 RAG 查询（产生 Phoenix trace + 看到检索结果）
-ENABLE_PHOENIX_TRACING=true python experiment_rag/rag_agent.py \
-  "MCP v1 和 v2 的握手有什么区别？" \
-  --retrieval-only --chunk-size 512
-
-# Step 3: 打开 Phoenix UI 查看 trace
-# → http://localhost:6006 → Traces → 找到 "chromadb_retrieval" span
-# → 展开查看: 查询文本、检索到的文档块、相似度分数、文档类型(target/noise)
-
-# Step 4: 生成本地 UMAP 3D 可视化 HTML
+# Step 2: 生成 Embedding 可视化 (UMAP 降维 + Plotly 交互式 3D)
 python experiment_rag/embedding_viz.py \
   --output experiment_rag/output/embedding_umap_3d.html
+
+# Step 3: 浏览器打开查看
 open experiment_rag/output/embedding_umap_3d.html
 ```
 
-### 3.3 Phoenix Trace 面板中看什么
-
-在 Phoenix UI（http://localhost:6006）的 **Traces** 页面，展开最新的 trace，可以看到：
-
-1. **Span: `chromadb_retrieval`** — 检索追踪
-   - `query`: 用户查询文本
-   - `retrieved_count`: 原始检索到的文档数
-   - `filtered_count`: 经过阈值过滤后的文档数
-   - `retrieved.0.title` / `.score` / `.doc_type`: 每个检索块的详细信息
-   - **重点**：`doc_type` 为 `noise` 的块是"被错误检索"的噪声文档
-
-2. **Span: `llm_generation`**（如果有 LLM 调用）
-   - `model`、`context_length`、`response_length`
-
-### 3.4 UMAP 3D HTML 图中看什么
+### 3.3 UMAP 3D HTML 图中看什么
 
 打开生成的 HTML 文件（`experiment_rag/output/embedding_umap_3d.html`），观察：
 
@@ -159,7 +132,7 @@ open experiment_rag/output/embedding_umap_3d.html
 2. **噪声离群度**：REST API（红色）和 WebSocket（橙色）与目标簇的距离
 3. **查询点位置**：黄色菱形（查询）落在哪些区域？
 
-### 3.5 练习任务
+### 3.4 练习任务
 
 1. **基础**：生成 UMAP 3D 图，识别至少 3 个簇，用颜色标注
 2. **进阶**：找出 2 个"被噪声吸引"的查询，解释为什么会这样
@@ -176,7 +149,7 @@ open experiment_rag/output/embedding_umap_3d.html
 ### 4.2 操作步骤
 
 ```bash
-python rag_experiment/run_rag_experiments.py -e 2B
+python experiment_rag/run_experiments.py -e 2B
 ```
 
 ### 4.3 预期结果
@@ -202,7 +175,7 @@ python rag_experiment/run_rag_experiments.py -e 2B
 ### 4.4 练习任务
 
 1. **基础**：运行诊断，记录有多少个检索块被标记为"失效"
-2. **进阶**：选一个失效案例，在 Phoenix Trace 中追踪：该块是哪个文档的？为什么 similarity 高？
+2. **进阶**：选一个失效案例，对比 UMAP 图中的位置——该块来自哪个文档？在向量空间中距查询多远？
 3. **挑战**：修改 `retrieval_diagnosis.py` 中的 `TRICKY_QUERIES`，添加你自己的陷阱查询
 
 ---
@@ -216,7 +189,7 @@ python rag_experiment/run_rag_experiments.py -e 2B
 ### 5.2 操作步骤
 
 ```bash
-python rag_experiment/run_rag_experiments.py -e 2C
+python experiment_rag/run_experiments.py -e 2C
 ```
 
 ### 5.3 预期输出
@@ -348,7 +321,7 @@ Bi-Encoder 返回的 Top-20 候选
 ### 6.3 操作步骤
 
 ```bash
-python rag_experiment/run_rag_experiments.py -e 2D
+python experiment_rag/run_experiments.py -e 2D
 ```
 
 此次实验会运行 `reranking_test.py`，对每一查询分别测试无重排和有重排两种情况，然后用量化指标对比差异。
@@ -620,7 +593,7 @@ for k in k_values:            # [10, 60, 120]
 
 ```bash
 # 混合检索对比（含参数敏感性分析）
-python experiment_rag/run_rag_experiments.py -e 2E
+python experiment_rag/run_experiments.py -e 2E
 
 # 或直接运行
 python experiment_rag/hybrid_search.py             # 完整对比
@@ -676,7 +649,6 @@ python experiment_rag/hybrid_search.py --sensitivity  # 参数网格搜索
 - "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks" (Lewis et al., 2020)
 - Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks (Reimers & Gurevych, 2019)
 - UMAP: Uniform Manifold Approximation and Projection (McInnes et al., 2018)
-- Arize Phoenix Embeddings: https://docs.arize.com/phoenix/datasets-and-schema/embeddings
 
 ---
 
@@ -699,7 +671,3 @@ python -c "from sentence_transformers import SentenceTransformer; SentenceTransf
 ### UMAP 降维报错 n_neighbors
 
 如果文档块数量少于 15，`n_neighbors` 必须小于样本数。`embedding_viz.py` 已处理此边界情况。
-
-### Phoenix 不可用
-
-实验 2A 会自动降级到本地 UMAP + Plotly 方案，不影响实验进行。

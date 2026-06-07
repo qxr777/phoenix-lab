@@ -2,11 +2,7 @@
 """
 Embedding 降维可视化引擎
 
-双重策略:
-  1. Phoenix UMAP 3D (推荐): 通过 phoenix.Client 发送向量，
-     Phoenix Embeddings 标签页自动生成 UMAP 投影
-  2. 本地 UMAP + Plotly 3D (后备): 当 Phoenix 不可用时，
-     使用 umap-learn 降维 + plotly 生成交互式 HTML 3D 散点图
+使用 umap-learn 降维 + plotly 生成交互式 HTML 3D 散点图。
 """
 
 import json
@@ -20,7 +16,7 @@ import numpy as np
 
 from experiment_rag.config import (
     CHROMA_DB_PATH, DEFAULT_CHUNK_SIZE,
-    EMBEDDING_MODEL, OUTPUT_DIR, PHOENIX_HOST,
+    EMBEDDING_MODEL, OUTPUT_DIR,
 )
 
 DEFAULT_QUERIES = [
@@ -43,96 +39,6 @@ def _embed_texts(texts):
     ef = _get_embedding_model()
     vectors = ef(texts)
     return np.array(vectors) if isinstance(vectors, list) else vectors
-
-
-def _check_phoenix():
-    try:
-        import urllib.request
-        urllib.request.urlopen(f"{PHOENIX_HOST}/health", timeout=3)
-        return True
-    except Exception:
-        return False
-
-
-def visualize_phoenix(doc_texts, doc_vecs, query_texts=None, query_vecs=None):
-    if not _check_phoenix():
-        print(f"[Viz] Phoenix 不可用 ({PHOENIX_HOST})")
-        return False
-
-    print(f"[Viz] Phoenix 已连接 ({PHOENIX_HOST})，上传嵌入数据...")
-
-    def _gql(query, variables=None):
-        import urllib.request
-        payload = {"query": query}
-        if variables:
-            payload["variables"] = variables
-        req = urllib.request.Request(
-            f"{PHOENIX_HOST}/graphql",
-            data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
-        )
-        resp = urllib.request.urlopen(req, timeout=30)
-        return json.loads(resp.read())
-
-    # Step 1: Create dataset
-    resp = _gql("""
-        mutation CreateDataset($input: CreateDatasetInput!) {
-            createDataset(input: $input) {
-                dataset { id name }
-            }
-        }
-    """, variables={"input": {"name": "RAG Embedding Dataset", "description": "MCP知识库文档块和查询的嵌入向量"}})
-    dataset_id = resp["data"]["createDataset"]["dataset"]["id"]
-    print(f"[Viz] Dataset created: {dataset_id}")
-
-    # Step 2: Add document examples with embeddings
-    examples = []
-    batch_size = 50
-    for i in range(0, len(doc_texts), batch_size):
-        batch_examples = []
-        for j in range(i, min(i + batch_size, len(doc_texts))):
-            vec_list = doc_vecs[j].tolist() if hasattr(doc_vecs[j], 'tolist') else list(map(float, doc_vecs[j]))
-            batch_examples.append({
-                "input": {"text": doc_texts[j][:200]},
-                "output": {"type": "document"},
-                "metadata": {"embedding": vec_list, "label": f"doc_{j}"},
-            })
-
-        resp = _gql("""
-            mutation AddExamples($input: AddExamplesToDatasetInput!) {
-                addExamplesToDataset(input: $input) {
-                    dataset { exampleCount }
-                }
-            }
-        """, variables={"input": {"datasetId": dataset_id, "examples": batch_examples}})
-        count = resp["data"]["addExamplesToDataset"]["dataset"]["exampleCount"]
-        print(f"[Viz]   uploaded {min(i+batch_size, len(doc_texts))}/{len(doc_texts)} doc examples (total: {count})")
-
-    # Step 3: Add query examples
-    if query_texts and query_vecs is not None:
-        query_examples = []
-        for i in range(len(query_texts)):
-            vec_list = query_vecs[i].tolist() if hasattr(query_vecs[i], 'tolist') else list(map(float, query_vecs[i]))
-            query_examples.append({
-                "input": {"text": query_texts[i]},
-                "output": {"type": "query"},
-                "metadata": {"embedding": vec_list, "label": f"query_{i}"},
-            })
-
-        resp = _gql("""
-            mutation AddExamples($input: AddExamplesToDatasetInput!) {
-                addExamplesToDataset(input: $input) {
-                    dataset { exampleCount }
-                }
-            }
-        """, variables={"input": {"datasetId": dataset_id, "examples": query_examples}})
-        count = resp["data"]["addExamplesToDataset"]["dataset"]["exampleCount"]
-        print(f"[Viz]   uploaded {len(query_texts)} query examples (total: {count})")
-
-    print(f"\n  ✅ Phoenix 嵌入数据已上传！")
-    print(f"  🔗 打开 Phoenix Embeddings: {PHOENIX_HOST}/datasets/{dataset_id}")
-    print(f"     或访问 {PHOENIX_HOST}/embeddings 查看 UMAP 3D 向量空间图")
-    return True
 
 
 def visualize_local_umap(doc_texts, doc_vecs, query_texts=None,
@@ -172,23 +78,40 @@ def visualize_local_umap(doc_texts, doc_vecs, query_texts=None,
     reducer = umap.UMAP(n_components=3, random_state=42, n_neighbors=n_neighbors)
     emb_3d = reducer.fit_transform(combined)
 
-    color_map = {
-        "MCP v1": "#4285F4", "MCP v2": "#34A853",
-        "Transport": "#FBBC05", "Noise: REST": "#EA4335",
-        "Noise: WS": "#FF6D01", "Unknown": "#9AA0A6",
-    }
+    CATEGORY_COLORS = [
+        ("MCP v1",      "#4285F4"),
+        ("MCP v2",      "#34A853"),
+        ("Transport",   "#FBBC05"),
+        ("Noise: REST", "#EA4335"),
+        ("Noise: WS",   "#FF6D01"),
+    ]
     query_color = "#F9AB00"
 
     fig = go.Figure()
-    # 文档点
-    fig.add_trace(go.Scatter3d(
-        x=emb_3d[:num_docs, 0], y=emb_3d[:num_docs, 1],
-        z=emb_3d[:num_docs, 2], mode="markers",
-        marker=dict(size=5, color=[color_map.get(l, "#9AA0A6") for l in labels[:num_docs]],
-                    symbol="circle", opacity=0.8),
-        text=[f"{labels[i]}<br>{doc_texts[i][:80]}..." for i in range(num_docs)],
-        hoverinfo="text", name="文档块",
-    ))
+    # 按类别分组，每个类别一个 trace（自动生成legend图例）
+    for cat_name, cat_color in CATEGORY_COLORS:
+        idxs = [i for i, l in enumerate(labels[:num_docs]) if l == cat_name]
+        if not idxs:
+            continue
+        xs = emb_3d[idxs, 0]
+        ys = emb_3d[idxs, 1]
+        zs = emb_3d[idxs, 2]
+        fig.add_trace(go.Scatter3d(
+            x=xs, y=ys, z=zs, mode="markers",
+            marker=dict(size=5, color=cat_color, symbol="circle", opacity=0.8),
+            text=[f"{labels[i]}<br>{doc_texts[i][:80]}..." for i in idxs],
+            hoverinfo="text", name=cat_name,
+        ))
+    # 未分类文档（兜底）
+    unknown_idxs = [i for i, l in enumerate(labels[:num_docs]) if l not in dict(CATEGORY_COLORS)]
+    if unknown_idxs:
+        fig.add_trace(go.Scatter3d(
+            x=emb_3d[unknown_idxs, 0], y=emb_3d[unknown_idxs, 1],
+            z=emb_3d[unknown_idxs, 2], mode="markers",
+            marker=dict(size=5, color="#9AA0A6", symbol="circle", opacity=0.6),
+            text=[f"{labels[i]}<br>{doc_texts[i][:80]}..." for i in unknown_idxs],
+            hoverinfo="text", name="其他",
+        ))
     # 查询点
     if len(labels) > num_docs:
         fig.add_trace(go.Scatter3d(
@@ -206,7 +129,7 @@ def visualize_local_umap(doc_texts, doc_vecs, query_texts=None,
     )
 
     output_path = output_path or str(OUTPUT_DIR / "embedding_umap_3d.html")
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     fig.write_html(output_path)
     print(f"[Viz] ✅ 本地 UMAP 3D: {output_path}")
     return True
@@ -224,8 +147,7 @@ def _load_from_chromadb(chunk_size):
 
 
 def visualize_embeddings(document_texts=None, query_texts=None,
-                         chunk_size=DEFAULT_CHUNK_SIZE, force_local=False,
-                         output_path=None):
+                         chunk_size=DEFAULT_CHUNK_SIZE, output_path=None):
     if document_texts is None:
         document_texts = _load_from_chromadb(chunk_size)
     if not document_texts:
@@ -235,12 +157,7 @@ def visualize_embeddings(document_texts=None, query_texts=None,
     doc_vecs = _embed_texts(document_texts)
     query_vecs = _embed_texts(query_texts) if query_texts else None
 
-    if not force_local and visualize_phoenix(document_texts, doc_vecs,
-                                              query_texts, query_vecs):
-        return {"success": True, "method": "phoenix",
-                "num_documents": len(document_texts)}
-
-    print("[Viz] 切换到本地 UMAP + Plotly")
+    print("[Viz] 本地 UMAP + Plotly 3D")
     ok = visualize_local_umap(document_texts, doc_vecs, query_texts,
                                query_vecs, output_path)
     return {"success": ok, "method": "local_umap",
@@ -251,7 +168,6 @@ def visualize_embeddings(document_texts=None, query_texts=None,
 def main():
     import argparse
     p = argparse.ArgumentParser(description="Embedding 降维可视化")
-    p.add_argument("--force-local", action="store_true")
     p.add_argument("--output", "-o", help="输出 HTML 路径")
     args = p.parse_args()
 
@@ -260,7 +176,6 @@ def main():
     print("=" * 60)
     result = visualize_embeddings(
         query_texts=DEFAULT_QUERIES,
-        force_local=args.force_local,
         output_path=args.output,
     )
     print(f"\n结果: {json.dumps(result, ensure_ascii=False, indent=2)}")

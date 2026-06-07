@@ -3,13 +3,12 @@ from pathlib import Path
 """
 RAG 知识库构建器
 
-加载 Markdown 文档 → 分块 → 嵌入 → 存入 ChromaDB → 可选发送到 Phoenix
+加载 Markdown 文档 → 分块 → 嵌入 → 存入 ChromaDB
 
 用法:
   python build_kb.py                        # 默认配置构建
   python build_kb.py --chunk-size 1024      # 指定分块大小
   python build_kb.py --strategy semantic    # 使用语义分块策略
-  python build_kb.py --send-to-phoenix      # 同时发送 embeddings 到 Phoenix
 """
 
 import argparse
@@ -55,7 +54,6 @@ def build_knowledge_base(
     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
     strategy: str = "fixed",
     collection_name: str = "mcp_knowledge_base",
-    send_to_phoenix: bool = False,
 ) -> dict:
     collection_full_name = f"{collection_name}_cs{chunk_size}"
     ef = get_embedding_function()
@@ -125,31 +123,7 @@ def build_knowledge_base(
     for title, stats in doc_stats.items():
         print(f"   {title}: {stats['chunk_count']} chunks ({stats['doc_type']})")
 
-    if send_to_phoenix:
-        _send_to_phoenix(all_chunks)
-
     return result
-
-
-def _send_to_phoenix(all_chunks: list):
-    try:
-        import phoenix
-        import numpy as np
-
-        model = get_embedding_function()
-        texts = [c[1] for c in all_chunks]
-        vectors = model(texts)
-        if isinstance(vectors, list):
-            vectors = np.array(vectors)
-
-        print(f"[Phoenix] arize-phoenix {phoenix.__version__} 已安装")
-        print(f"[Phoenix] 嵌入数据通过 OTLP trace 自动发送到 Phoenix。")
-        print(f"[Phoenix] 运行带 ENABLE_PHOENIX_TRACING=true 的 RAG 查询后即可在 Phoenix UI 查看。")
-    except ImportError:
-        print("[Phoenix] 警告: arize-phoenix 未安装，跳过 Phoenix 发送")
-    except Exception as e:
-        print(f"[Phoenix] 发送失败: {e}")
-        print("[Phoenix] 提示: 确保 Phoenix Docker 已启动 (docker compose up -d)")
 
 
 # ──────────────────────────────────────────────
@@ -162,7 +136,6 @@ def main():
     parser.add_argument("--chunk-overlap", type=int, default=DEFAULT_CHUNK_OVERLAP, help="分块重叠")
     parser.add_argument("--strategy", choices=["fixed", "semantic", "paragraph"], default="fixed")
     parser.add_argument("--collection-name", default="mcp_knowledge_base")
-    parser.add_argument("--send-to-phoenix", action="store_true", help="发送 embeddings 到 Phoenix")
     parser.add_argument("--all-sizes", action="store_true", help="为所有 chunk_size 变体构建知识库")
 
     args = parser.parse_args()
@@ -177,7 +150,6 @@ def main():
                 chunk_overlap=size // 10,
                 strategy=args.strategy,
                 collection_name=args.collection_name,
-                send_to_phoenix=False,
             )
         print(f"\n[KB] 全部知识库构建完成！")
     else:
@@ -186,7 +158,6 @@ def main():
             chunk_overlap=args.chunk_overlap,
             strategy=args.strategy,
             collection_name=args.collection_name,
-            send_to_phoenix=args.send_to_phoenix,
         )
 
 

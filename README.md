@@ -17,7 +17,7 @@ phoenix_lab/
 │   └── ...
 │
 ├── experiment_rag/               # 实验二：RAG 瓶颈诊断
-│   ├── run_rag_experiments.py    #   Embedding UMAP 3D → 检索失效 → 分块/重排
+│   ├── run_experiments.py    #   Embedding UMAP 3D → 检索失效 → 分块/重排
 │   └── ...
 │
 ├── experiment_llm_judge/         # 实验三：LLM-as-a-Judge
@@ -54,7 +54,7 @@ cd docker && docker compose up -d && cd ..
 python experiment_asi/run_experiments.py
 
 # RAG 实验（检索诊断）
-python experiment_rag/run_rag_experiments.py
+python experiment_rag/run_experiments.py
 
 # LLM-as-Judge 实验（自动化评估）
 # 课前预计算（~10-20 min）→ 课堂回放（瞬时）
