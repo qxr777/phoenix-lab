@@ -1,0 +1,22 @@
+{
+  "eval_type": "correctness",
+  "model": "deepseek-v4-flash",
+  "total_queries": 10,
+  "summary": {
+    "score_legality_pass": 8,
+    "score_legality_total": 8,
+    "tone_objectivity_pass": 10,
+    "tone_objectivity_total": 10,
+    "citation_pass": 7,
+    "citation_total": 10,
+    "boundary_pass": 1,
+    "boundary_total": 1,
+    "insufficient_data_pass": 2,
+    "insufficient_data_total": 2,
+    "trait_coverage_pass": 8,
+    "trait_coverage_total": 8,
+    "integer_score_pass": 8,
+    "integer_score_total": 8,
+    "overall_correctness_rate": 93.6
+  }
+}

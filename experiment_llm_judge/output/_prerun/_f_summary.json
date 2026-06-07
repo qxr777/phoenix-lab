@@ -1,0 +1,12 @@
+{
+  "eval_type": "hallucination",
+  "model": "deepseek-v4-flash",
+  "total_queries": 10,
+  "rounds": 1,
+  "total_claims": 51,
+  "match_count": 31,
+  "mismatch_count": 18,
+  "vague_count": 1,
+  "hallucination_rate": 35.3,
+  "hallucination_rate_std": 0.0
+}

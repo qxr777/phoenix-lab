@@ -30,8 +30,10 @@ docker/data/
 experiment_asi/audit_report.json
 experiment_asi/audit_report.html
 experiment_rag/output/
+experiment_llm_judge/output/*
+!experiment_llm_judge/output/_prerun/
+!experiment_llm_judge/output/.gitkeep
 
-# Submissions (runtime data)
+# ASI Submissions (runtime data)
 experiment_asi/submissions/poisoned/
 experiment_asi/submissions/normal/
-submissions/

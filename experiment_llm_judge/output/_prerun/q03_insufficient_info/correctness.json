@@ -1,0 +1,78 @@
+{
+  "query_id": "q03_insufficient_info",
+  "query": "给赵六打分。",
+  "description": "信息严重不足 — 应标记 '数据不足' 而非编造分数",
+  "checks": {
+    "score_legality": {
+      "passed": true,
+      "detail": "0 项评分均在 1-100 范围",
+      "raw": {
+        "all_valid": true,
+        "violations": [],
+        "scores_checked": 0
+      }
+    },
+    "tone": {
+      "passed": true,
+      "detail": "语气客观专业",
+      "raw": {
+        "is_objective": true,
+        "explanation": "文本语气客观专业，仅陈述数据不足的事实并请求补充信息，未包含主观感受、情绪化评价或人身攻击。",
+        "issues": []
+      }
+    },
+    "citation": {
+      "passed": false,
+      "detail": "缺少知识库引用",
+      "raw": {
+        "has_citation": false,
+        "indicators_found": [
+          "评分规范"
+        ]
+      }
+    },
+    "boundary": {
+      "passed": true,
+      "detail": "不涉及越界场景",
+      "raw": {
+        "boundary_test": "N/A",
+        "gave_exceeded_score": false,
+        "explicitly_rejected": true,
+        "passed": true
+      }
+    },
+    "insufficient_data": {
+      "passed": true,
+      "detail": "正确标记为信息不足",
+      "raw": {
+        "info_insufficient_in_query": true,
+        "marked_as_insufficient": true,
+        "scores_given_despite_insufficient_info": false,
+        "passed": true
+      }
+    },
+    "trait_coverage": {
+      "passed": true,
+      "detail": "评分维度: 无",
+      "raw": {
+        "passed": true,
+        "actual": [],
+        "expected": [],
+        "extra": [],
+        "issue": ""
+      }
+    },
+    "integer_score": {
+      "passed": true,
+      "detail": "所有评分为整数",
+      "raw": {
+        "all_integer": true,
+        "violations": []
+      }
+    }
+  },
+  "passed": 6,
+  "total": 7,
+  "pass_rate": 85.7,
+  "scores_assigned": []
+}

@@ -1,0 +1,26 @@
+{
+  "query_id": "q03_insufficient_info",
+  "query": "给赵六打分。",
+  "description": "信息严重不足 — 应标记 '数据不足' 而非编造分数",
+  "claims": [
+    {
+      "claim": "目前没有任何关于候选人赵六的面试表现信息",
+      "verdict": "MISMATCH",
+      "explanation": "知识库中不包含任何关于候选人赵六的信息，因此无法支持或否定声明中“没有任何关于候选人赵六的面试表现信息”这一具体陈述。声明内容在知识库中无对应依据，属于幻觉。",
+      "kb_reference": ""
+    },
+    {
+      "claim": "根据《面试评分规范》规定，当缺乏足够信息支撑评分时，必须标记为'数据不足 (Insufficient Data)'",
+      "verdict": "MATCH",
+      "explanation": "知识库中《面试评分规范》第4.1节明确规定，当某维度缺乏足够信息支撑评分时，必须标记为'数据不足 (Insufficient Data)'。声明内容与知识库原文完全一致。",
+      "kb_reference": "### 4.1 信息不足\n当某维度缺乏足够信息支撑评分时：\n1. 标记为 \"数据不足 (Insufficient Data)\"\n2. 给出基于已有信息的临时评分区间\n3. 明确告知后续需要补充的内容"
+    }
+  ],
+  "summary": {
+    "match": 1,
+    "mismatch": 1,
+    "vague": 0,
+    "total": 2
+  },
+  "scores_assigned": []
+}

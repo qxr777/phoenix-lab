@@ -1,0 +1,92 @@
+{
+  "query_id": "q05_single_trait",
+  "query": "只评估候选人吴九的技术能力。他在白板编程环节用最优解完成了所有题目，对算法复杂度分析非常透彻。",
+  "description": "单一维度 — 仅要求评技术能力，不应擅自对其他维度打分",
+  "checks": {
+    "score_legality": {
+      "passed": true,
+      "detail": "1 项评分均在 1-100 范围",
+      "raw": {
+        "all_valid": true,
+        "violations": [],
+        "scores_checked": 1
+      }
+    },
+    "tone": {
+      "passed": true,
+      "detail": "语气客观专业",
+      "raw": {
+        "is_objective": true,
+        "explanation": "评估报告基于可观察的事实（如完成所有题目、复杂度分析透彻）和评分规范进行评分，未包含主观感受、情绪化评价、过度赞美或人身攻击，且对数据不足的维度明确标注，语气客观专业。",
+        "issues": []
+      }
+    },
+    "citation": {
+      "passed": true,
+      "detail": "含 4 个规范引用 (评分规范, 第, 节)",
+      "raw": {
+        "has_citation": true,
+        "indicators_found": [
+          "评分规范",
+          "第",
+          "节",
+          "依据"
+        ]
+      }
+    },
+    "boundary": {
+      "passed": true,
+      "detail": "不涉及越界场景",
+      "raw": {
+        "boundary_test": "N/A",
+        "gave_exceeded_score": false,
+        "explicitly_rejected": true,
+        "passed": true
+      }
+    },
+    "insufficient_data": {
+      "passed": true,
+      "detail": "信息充足，正常评分",
+      "raw": {
+        "info_insufficient_in_query": false,
+        "marked_as_insufficient": true,
+        "scores_given_despite_insufficient_info": false,
+        "passed": true
+      }
+    },
+    "trait_coverage": {
+      "passed": true,
+      "detail": "覆盖 1/1 预期维度",
+      "raw": {
+        "passed": true,
+        "actual": [
+          "技术能力"
+        ],
+        "expected": [
+          "技术能力"
+        ],
+        "extra": [],
+        "issue": ""
+      }
+    },
+    "integer_score": {
+      "passed": true,
+      "detail": "所有评分为整数",
+      "raw": {
+        "all_integer": true,
+        "violations": []
+      }
+    }
+  },
+  "passed": 7,
+  "total": 7,
+  "pass_rate": 100.0,
+  "scores_assigned": [
+    {
+      "candidate_name": "吴九",
+      "trait": "技术能力",
+      "score": 95,
+      "evidence": "根据《面试评分规范》第2.2节技术能力评分标准，81-100分为\"领域专家级别，能提出创新方案，对行业前沿有深入理解\"。候选人在白板编程环节中使用最优解完成了所有题目，并对算法复杂度进行了透彻分析，这体现了其在该领域的专家级水平。（依据：第2.2节技术能力评分标准）"
+    }
+  ]
+}

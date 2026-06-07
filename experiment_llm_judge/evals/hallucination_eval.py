@@ -22,6 +22,7 @@
 import json
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -32,10 +33,25 @@ from openai import OpenAI
 load_dotenv()
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+WORKERS = max(1, int(os.getenv("OPENAI_PARALLEL", "4")))
 BASE_DIR = Path(__file__).parent
 EXPERIMENT_DIR = BASE_DIR.parent
 KB_DIR = EXPERIMENT_DIR / "knowledge_base"
 OUTPUT_DIR = EXPERIMENT_DIR / "output"
+
+PHOENIX_ENABLED = os.getenv("ENABLE_PHOENIX_TRACING", "").lower() in ("true", "1", "yes")
+if PHOENIX_ENABLED:
+    from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    trace.set_tracer_provider(TracerProvider())
+    trace.get_tracer_provider().add_span_processor(
+        SimpleSpanProcessor(OTLPSpanExporter(endpoint=os.getenv("PHOENIX_COLLECTOR_ENDPOINT", "http://127.0.0.1:6006/v1/traces")))
+    )
+    _eval_tracer = trace.get_tracer("hallucination_eval")
+else:
+    _eval_tracer = None
 
 scoring_rubric_text = (KB_DIR / "scoring_rubric.md").read_text(encoding="utf-8")
 tone_guidelines_text = (KB_DIR / "tone_guidelines.md").read_text(encoding="utf-8")
@@ -51,13 +67,16 @@ class Colors:
     RESET = "\033[0m"
 
 
-def run_interviewer(query: str) -> dict:
+def run_interviewer(query: str, run_id: str = "") -> dict:
     import subprocess
+    import hashlib
 
     agent_script = str(EXPERIMENT_DIR / "interviewer_agent.py")
-    temp_output = str(OUTPUT_DIR / "_temp_interviewer_result.json")
+    uid = run_id or hashlib.md5(query.encode()).hexdigest()[:8]
+    temp_output = str(OUTPUT_DIR / f"_temp_hallucination_{uid}.json")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    cmd = [sys.executable, agent_script, f"--query={query}", f"--output-json={temp_output}"]
     try:
         proc = subprocess.run(
             [sys.executable, agent_script, f"--query={query}", f"--output-json={temp_output}"],
@@ -170,11 +189,19 @@ def judge_claim(claim: str, kb_text: str, client: OpenAI) -> dict:
 只返回 JSON，不要其他内容。"""
 
     try:
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0,
-        )
+        if _eval_tracer:
+            with _eval_tracer.start_as_current_span("judge.hallucination_check", attributes={"claim_length": len(claim)}) as span:
+                response = client.chat.completions.create(
+                    model=MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0,
+                )
+        else:
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+            )
         content = response.choices[0].message.content or "{}"
         content = content.strip()
         if content.startswith("```"):
@@ -185,9 +212,55 @@ def judge_claim(claim: str, kb_text: str, client: OpenAI) -> dict:
         return {"verdict": "ERROR", "explanation": str(e), "kb_reference": ""}
 
 
-def run_hallucination_eval(verbose: bool = False) -> dict:
+def _process_query_hallucination(tq: dict, idx: int, total: int, rounds: int, parallel_judge: bool) -> dict:
     client = OpenAI()
+    qid = tq["id"]
+    round_rates = []
 
+    for r in range(rounds):
+        label = f"{qid} r{r+1}/{rounds}" if rounds > 1 else qid
+        print(f"\r{Colors.CYAN}  Hallucination Eval [{idx + 1}/{total}]: {label}...{Colors.RESET}", end="")
+        sys.stdout.flush()
+
+        run_id = f"{qid}_r{r}"
+        query_result = run_interviewer(tq["query"], run_id=run_id)
+        claims = extract_claims(query_result["final_feedback"], client)
+
+        if parallel_judge and len(claims) > 1:
+            with ThreadPoolExecutor(max_workers=min(len(claims), 6)) as pool:
+                futures = {pool.submit(judge_claim, claim, full_kb_text, client): claim for claim in claims}
+                ordered = [None] * len(claims)
+                claim_index = {c: i for i, c in enumerate(claims)}
+                for future in as_completed(futures):
+                    claim = futures[future]
+                    ordered[claim_index[claim]] = {"claim": claim, **future.result()}
+                claim_results = ordered
+        else:
+            claim_results = []
+            for claim in claims:
+                verdict = judge_claim(claim, full_kb_text, client)
+                claim_results.append({"claim": claim, **verdict})
+
+        match = sum(1 for c in claim_results if c["verdict"] == "MATCH")
+        mismatch = sum(1 for c in claim_results if c["verdict"] == "MISMATCH")
+        vague = sum(1 for c in claim_results if c["verdict"] == "VAGUE")
+
+        if len(claims) > 0:
+            round_rates.append(round(mismatch / len(claims) * 100, 1))
+
+    return {
+        "query_id": qid,
+        "query": tq["query"],
+        "description": tq.get("description", ""),
+        "final_feedback": query_result["final_feedback"],
+        "scores_assigned": query_result.get("scores_assigned", []),
+        "claims": claim_results,
+        "summary": {"match": match, "mismatch": mismatch, "vague": vague, "total": len(claims)},
+        "round_rates": round_rates,
+    }
+
+
+def run_hallucination_eval(verbose: bool = False, rounds: int = 1, parallel_judge: bool = False) -> dict:
     queries_path = BASE_DIR / "test_queries.json"
     test_queries = json.loads(queries_path.read_text(encoding="utf-8"))
 
@@ -195,60 +268,65 @@ def run_hallucination_eval(verbose: bool = False) -> dict:
         "eval_type": "hallucination",
         "model": MODEL,
         "total_queries": len(test_queries),
+        "rounds": rounds,
         "total_claims": 0,
         "match_count": 0,
         "mismatch_count": 0,
         "vague_count": 0,
         "hallucination_rate": 0.0,
+        "hallucination_rate_std": 0.0,
         "results": [],
     }
 
-    for i, tq in enumerate(test_queries):
-        qid = tq["id"]
-        print(f"\r{Colors.CYAN}  Hallucination Eval [{i + 1}/{len(test_queries)}]: {qid}...{Colors.RESET}", end="")
-        sys.stdout.flush()
-
-        query_result = run_interviewer(tq["query"])
-
-        claims = extract_claims(query_result["final_feedback"], client)
-
-        claim_results = []
-        for claim in claims:
-            verdict = judge_claim(claim, full_kb_text, client)
-            claim_results.append({"claim": claim, **verdict})
-
-        match = sum(1 for c in claim_results if c["verdict"] == "MATCH")
-        mismatch = sum(1 for c in claim_results if c["verdict"] == "MISMATCH")
-        vague = sum(1 for c in claim_results if c["verdict"] == "VAGUE")
-
-        report["total_claims"] += len(claims)
-        report["match_count"] += match
-        report["mismatch_count"] += mismatch
-        report["vague_count"] += vague
-
-        report["results"].append({
-            "query_id": qid,
-            "query": tq["query"],
-            "description": tq.get("description", ""),
-            "final_feedback": query_result["final_feedback"],
-            "scores_assigned": query_result.get("scores_assigned", []),
-            "claims": claim_results,
-            "summary": {"match": match, "mismatch": mismatch, "vague": vague, "total": len(claims)},
-        })
-
-        if verbose:
-            print()
-            for cr in claim_results:
-                color = Colors.GREEN if cr["verdict"] == "MATCH" else (Colors.RED if cr["verdict"] == "MISMATCH" else Colors.YELLOW)
-                print(f"    {color}[{cr['verdict']}]{Colors.RESET} {cr['claim'][:120]}")
+    all_query_results = _run_parallel(test_queries, rounds, WORKERS, parallel_judge)
+    if verbose:
+        for pq in all_query_results:
+            round_rates = pq["round_rates"]
+            if rounds > 1 and round_rates:
+                avg = sum(round_rates) / len(round_rates)
+                variance = sum((x - avg) ** 2 for x in round_rates) / len(round_rates)
+                print(f"\n  {Colors.BOLD}{pq['query_id']}{Colors.RESET}: avg={avg:.1f}% std={variance**0.5:.1f}% (n={rounds})")
 
     print()
+
+    for pq in all_query_results:
+        s = pq["summary"]
+        report["total_claims"] += s["total"]
+        report["match_count"] += s["match"]
+        report["mismatch_count"] += s["mismatch"]
+        report["vague_count"] += s["vague"]
+        report["results"].append({
+            "query_id": pq["query_id"],
+            "query": pq["query"],
+            "description": pq["description"],
+            "final_feedback": pq["final_feedback"],
+            "scores_assigned": pq["scores_assigned"],
+            "claims": pq["claims"],
+            "summary": s,
+        })
 
     total = report["total_claims"]
     if total > 0:
         report["hallucination_rate"] = round(report["mismatch_count"] / total * 100, 1)
 
     return report
+
+
+def _run_parallel(test_queries: list, rounds: int, workers: int, parallel_judge: bool) -> list:
+    results = [None] * len(test_queries)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {}
+        for i, tq in enumerate(test_queries):
+            f = pool.submit(_process_query_hallucination, tq, i, len(test_queries), rounds, parallel_judge)
+            futures[f] = i
+        for future in as_completed(futures):
+            idx = futures[future]
+            results[idx] = future.result()
+            qid = test_queries[idx]["id"]
+            print(f"\r{Colors.CYAN}  Hallucination Eval [{len([r for r in results if r])}/{len(test_queries)}] "
+                  f"complete: {qid}{Colors.RESET}")
+            sys.stdout.flush()
+    return results
 
 
 def print_report(report: dict):
@@ -276,19 +354,30 @@ def print_report(report: dict):
 
 
 def main():
+    global WORKERS
     verbose = "--verbose" in sys.argv
     output_json = None
+    rounds = 1
+    parallel_judge = False
     for arg in sys.argv[1:]:
         if arg.startswith("--output-json="):
             output_json = arg.split("=", 1)[1]
+        elif arg.startswith("--rounds="):
+            rounds = int(arg.split("=", 1)[1])
+        elif arg.startswith("--parallel="):
+            WORKERS = max(1, int(arg.split("=", 1)[1]))
+        elif arg == "--parallel-judge":
+            parallel_judge = True
 
     print(f"\n{Colors.BOLD}{'=' * 60}")
     print("🔍 实验 F：幻觉度量 — LLM-as-Judge")
     print(f"{'=' * 60}{Colors.RESET}")
     print(f"Judge 模型: {MODEL}")
+    print(f"轮次: {rounds}")
+    print(f"并行: {WORKERS} workers" + (" + 声明级并行" if parallel_judge else ""))
     print(f"知识库: {KB_DIR}\n")
 
-    report = run_hallucination_eval(verbose=verbose)
+    report = run_hallucination_eval(verbose=verbose, rounds=rounds, parallel_judge=parallel_judge)
     print_report(report)
 
     if output_json:

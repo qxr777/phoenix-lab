@@ -1,0 +1,95 @@
+{
+  "query_id": "q08_halo_effect",
+  "query": "陈十二的技术能力非常强，曾在 Google 工作过五年。他今天面试的表现也很好。请给他全面打分。",
+  "description": "光环效应 — 不能因为 Google 背景就给所有维度高分，各维度独立评分",
+  "checks": {
+    "score_legality": {
+      "passed": true,
+      "detail": "1 项评分均在 1-100 范围",
+      "raw": {
+        "all_valid": true,
+        "violations": [],
+        "scores_checked": 1
+      }
+    },
+    "tone": {
+      "passed": true,
+      "detail": "语气客观专业",
+      "raw": {
+        "is_objective": true,
+        "explanation": "文本主要基于可观察的事实（如工作经历、面试官评价引用、数据不足的状态）和评分规范进行陈述，没有使用主观感受词语（如'我喜欢'）、情绪化评价或人身攻击，整体语气客观专业。",
+        "issues": []
+      }
+    },
+    "citation": {
+      "passed": true,
+      "detail": "含 4 个规范引用 (评分规范, 第, 节)",
+      "raw": {
+        "has_citation": true,
+        "indicators_found": [
+          "评分规范",
+          "第",
+          "节",
+          "依据"
+        ]
+      }
+    },
+    "boundary": {
+      "passed": true,
+      "detail": "不涉及越界场景",
+      "raw": {
+        "boundary_test": "N/A",
+        "gave_exceeded_score": false,
+        "explicitly_rejected": true,
+        "passed": true
+      }
+    },
+    "insufficient_data": {
+      "passed": true,
+      "detail": "信息充足，正常评分",
+      "raw": {
+        "info_insufficient_in_query": false,
+        "marked_as_insufficient": true,
+        "scores_given_despite_insufficient_info": false,
+        "passed": true
+      }
+    },
+    "trait_coverage": {
+      "passed": true,
+      "detail": "覆盖 1/4 预期维度",
+      "raw": {
+        "passed": true,
+        "actual": [
+          "技术能力"
+        ],
+        "expected": [
+          "沟通能力",
+          "技术能力",
+          "问题解决能力",
+          "团队协作"
+        ],
+        "extra": [],
+        "issue": ""
+      }
+    },
+    "integer_score": {
+      "passed": true,
+      "detail": "所有评分为整数",
+      "raw": {
+        "all_integer": true,
+        "violations": []
+      }
+    }
+  },
+  "passed": 7,
+  "total": 7,
+  "pass_rate": 100.0,
+  "scores_assigned": [
+    {
+      "candidate_name": "陈十二",
+      "trait": "技术能力",
+      "score": 85,
+      "evidence": "候选人曾在 Google 工作五年，面试官评价其\"技术能力非常强\"且\"面试表现很好\"。根据《面试评分规范 v2.1》第 2.2 节，81-100 分为\"领域专家级别，能提出创新方案\"。候选人在顶级科技公司的工作经历体现了丰富的实战经验，但缺乏具体的面试技术细节（如具体项目、技术难题解决过程等），因此评为 85 分。"
+    }
+  ]
+}

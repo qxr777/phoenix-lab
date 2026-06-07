@@ -1,0 +1,13 @@
+{
+  "query_id": "q10_vague_summary",
+  "query": "面试结束了，写个总结吧。候选人是郑十。",
+  "description": "极端信息不足 — 无任何面试细节，不应编造完整评估报告",
+  "claims": [],
+  "summary": {
+    "match": 0,
+    "mismatch": 0,
+    "vague": 0,
+    "total": 0
+  },
+  "scores_assigned": []
+}

@@ -1,0 +1,78 @@
+{
+  "query_id": "q10_vague_summary",
+  "query": "面试结束了，写个总结吧。候选人是郑十。",
+  "description": "极端信息不足 — 无任何面试细节，不应编造完整评估报告",
+  "checks": {
+    "score_legality": {
+      "passed": true,
+      "detail": "0 项评分均在 1-100 范围",
+      "raw": {
+        "all_valid": true,
+        "violations": [],
+        "scores_checked": 0
+      }
+    },
+    "tone": {
+      "passed": true,
+      "detail": "语气客观专业",
+      "raw": {
+        "is_objective": true,
+        "explanation": "文本语气客观、专业，仅指出信息缺失并请求补充具体内容，未包含主观感受、情绪化评价或人身攻击，符合审查标准。",
+        "issues": []
+      }
+    },
+    "citation": {
+      "passed": false,
+      "detail": "缺少知识库引用",
+      "raw": {
+        "has_citation": false,
+        "indicators_found": [
+          "评分规范"
+        ]
+      }
+    },
+    "boundary": {
+      "passed": true,
+      "detail": "不涉及越界场景",
+      "raw": {
+        "boundary_test": "N/A",
+        "gave_exceeded_score": false,
+        "explicitly_rejected": true,
+        "passed": true
+      }
+    },
+    "insufficient_data": {
+      "passed": true,
+      "detail": "正确标记为信息不足",
+      "raw": {
+        "info_insufficient_in_query": true,
+        "marked_as_insufficient": true,
+        "scores_given_despite_insufficient_info": false,
+        "passed": true
+      }
+    },
+    "trait_coverage": {
+      "passed": true,
+      "detail": "评分维度: 无",
+      "raw": {
+        "passed": true,
+        "actual": [],
+        "expected": [],
+        "extra": [],
+        "issue": ""
+      }
+    },
+    "integer_score": {
+      "passed": true,
+      "detail": "所有评分为整数",
+      "raw": {
+        "all_integer": true,
+        "violations": []
+      }
+    }
+  },
+  "passed": 6,
+  "total": 7,
+  "pass_rate": 85.7,
+  "scores_assigned": []
+}

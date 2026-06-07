@@ -20,6 +20,7 @@ import json
 import os
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -30,10 +31,25 @@ from openai import OpenAI
 load_dotenv()
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+WORKERS = max(1, int(os.getenv("OPENAI_PARALLEL", "4")))
 BASE_DIR = Path(__file__).parent
 EXPERIMENT_DIR = BASE_DIR.parent
 KB_DIR = EXPERIMENT_DIR / "knowledge_base"
 OUTPUT_DIR = EXPERIMENT_DIR / "output"
+
+PHOENIX_ENABLED = os.getenv("ENABLE_PHOENIX_TRACING", "").lower() in ("true", "1", "yes")
+if PHOENIX_ENABLED:
+    from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    trace.set_tracer_provider(TracerProvider())
+    trace.get_tracer_provider().add_span_processor(
+        SimpleSpanProcessor(OTLPSpanExporter(endpoint=os.getenv("PHOENIX_COLLECTOR_ENDPOINT", "http://127.0.0.1:6006/v1/traces")))
+    )
+    _eval_tracer = trace.get_tracer("correctness_eval")
+else:
+    _eval_tracer = None
 
 
 class Colors:
@@ -59,16 +75,19 @@ FORBIDDEN_PATTERNS = [
 ]
 
 
-def run_interviewer(query: str) -> dict:
+def run_interviewer(query: str, run_id: str = "") -> dict:
     import subprocess
+    import hashlib
 
     agent_script = str(EXPERIMENT_DIR / "interviewer_agent.py")
-    temp_output = str(OUTPUT_DIR / "_temp_correctness_result.json")
+    uid = run_id or hashlib.md5(query.encode()).hexdigest()[:8]
+    temp_output = str(OUTPUT_DIR / f"_temp_correctness_{uid}.json")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    cmd = [sys.executable, agent_script, f"--query={query}", f"--output-json={temp_output}"]
     try:
         proc = subprocess.run(
-            [sys.executable, agent_script, f"--query={query}", f"--output-json={temp_output}"],
+            cmd,
             cwd=str(Path(__file__).parent.parent),
             capture_output=True,
             text=True,
@@ -255,11 +274,19 @@ def llm_tone_judge(text: str, client: OpenAI) -> dict:
 只返回 JSON。"""
 
     try:
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0,
-        )
+        if _eval_tracer:
+            with _eval_tracer.start_as_current_span("judge.tone_objectivity") as span:
+                response = client.chat.completions.create(
+                    model=MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0,
+                )
+        else:
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+            )
         content = response.choices[0].message.content or "{}"
         content = content.strip()
         if content.startswith("```"):
@@ -270,9 +297,92 @@ def llm_tone_judge(text: str, client: OpenAI) -> dict:
         return {"is_objective": True, "explanation": str(e), "issues": []}
 
 
-def run_correctness_eval(verbose: bool = False) -> dict:
-    client = OpenAI()
+def check_trait_coverage(scores: list[dict], expected_traits: list[str]) -> dict:
+    actual_traits = [s["trait"] for s in scores]
+    extra = [t for t in actual_traits if t not in expected_traits]
+    if not expected_traits:
+        return {"passed": True, "actual": actual_traits, "expected": expected_traits, "extra": extra, "issue": ""}
+    if len(actual_traits) == 0:
+        return {"passed": True, "actual": [], "expected": expected_traits, "extra": [], "issue": "无评分记录"}
+    passed = len(extra) == 0
+    issue = "" if passed else f"擅自评了未要求的维度: {', '.join(extra)}"
+    return {"passed": passed, "actual": actual_traits, "expected": expected_traits, "extra": extra, "issue": issue}
 
+
+def check_integer_scores(scores: list[dict]) -> dict:
+    violations = []
+    for s in scores:
+        score = s.get("score", 0)
+        if isinstance(score, float) and score != int(score):
+            violations.append(f"{s.get('trait', '?')}: 小数评分 {score}")
+    return {"all_integer": len(violations) == 0, "violations": violations}
+
+
+def _process_query_correctness(tq: dict, idx: int, total: int, rounds: int) -> dict:
+    client = OpenAI()
+    qid = tq["id"]
+    round_rates_list = []
+
+    for r in range(rounds):
+        label = f"{qid} r{r+1}/{rounds}" if rounds > 1 else qid
+        print(f"\r{Colors.CYAN}  Correctness Eval [{idx + 1}/{total}]: {label}...{Colors.RESET}", end="")
+        sys.stdout.flush()
+
+        run_id = f"{qid}_r{r}"
+        query_result = run_interviewer(tq["query"], run_id=run_id)
+        feedback = query_result["final_feedback"]
+        scores = query_result.get("scores_assigned", [])
+
+        score_check = check_score_legality(scores)
+        tone_check_heuristic = check_tone_objectivity(feedback)
+        tone_check_llm = llm_tone_judge(feedback, client)
+        citation_check = check_citation(feedback)
+        boundary_check = check_boundary_rejection(feedback, tq["query"], scores)
+        insufficient_check = check_insufficient_data_handling(feedback, scores, tq["query"])
+        trait_check = check_trait_coverage(scores, tq.get("expected_traits", []))
+        integer_check = check_integer_scores(scores)
+
+        total_checks = 0
+        total_pass = 0
+        for flag, dim_total_key, dim_pass in [
+            (tq.get("expected_scores_in_range", False) or len(scores) > 0, "score_legality", score_check["all_valid"]),
+            (tq.get("expected_objective_tone", False) or len(feedback) > 50, "tone_objectivity", tone_check_llm.get("is_objective", True)),
+            (tq.get("expected_citation", False), "citation", citation_check["has_citation"]),
+            (tq.get("expected_reject_120", False), "boundary", boundary_check["passed"]),
+            (tq.get("expected_insufficient_data", False), "insufficient_data", insufficient_check["passed"]),
+            (bool(tq.get("expected_traits", [])), "trait_coverage", trait_check["passed"]),
+            (tq.get("expected_integer_score", False), "integer_score", integer_check["all_integer"]),
+        ]:
+            if flag:
+                total_checks += 1
+                if dim_pass:
+                    total_pass += 1
+
+        if total_checks > 0:
+            round_rates_list.append(round(total_pass / total_checks * 100, 1))
+
+    return {
+        "query_id": qid,
+        "query": tq["query"],
+        "description": tq.get("description", ""),
+        "scores_assigned": scores,
+        "final_feedback": feedback[:500],
+        "checks": {
+            "score_legality": score_check,
+            "tone_heuristic": tone_check_heuristic,
+            "tone_llm_judge": tone_check_llm,
+            "citation": citation_check,
+            "boundary": boundary_check,
+            "insufficient_data": insufficient_check,
+            "trait_coverage": trait_check,
+            "integer_score": integer_check,
+        },
+        "tq": tq,
+        "round_rates_list": round_rates_list,
+    }
+
+
+def run_correctness_eval(verbose: bool = False, rounds: int = 1) -> dict:
     queries_path = BASE_DIR / "test_queries.json"
     test_queries = json.loads(queries_path.read_text(encoding="utf-8"))
 
@@ -292,100 +402,105 @@ def run_correctness_eval(verbose: bool = False) -> dict:
             "boundary_total": 0,
             "insufficient_data_pass": 0,
             "insufficient_data_total": 0,
+            "trait_coverage_pass": 0,
+            "trait_coverage_total": 0,
+            "integer_score_pass": 0,
+            "integer_score_total": 0,
             "overall_correctness_rate": 0.0,
         },
     }
 
-    applicable_queries = 0
-
-    for i, tq in enumerate(test_queries):
-        qid = tq["id"]
-        print(f"\r{Colors.CYAN}  Correctness Eval [{i + 1}/{len(test_queries)}]: {qid}...{Colors.RESET}", end="")
-        sys.stdout.flush()
-
-        query_result = run_interviewer(tq["query"])
-        feedback = query_result["final_feedback"]
-        scores = query_result.get("scores_assigned", [])
-
-        score_check = check_score_legality(scores)
-        tone_check_heuristic = check_tone_objectivity(feedback)
-        tone_check_llm = llm_tone_judge(feedback, client)
-        citation_check = check_citation(feedback)
-        boundary_check = check_boundary_rejection(feedback, tq["query"], scores)
-        insufficient_check = check_insufficient_data_handling(feedback, scores, tq["query"])
-
-        if tq.get("expected_scores_in_range", False) or len(scores) > 0:
-            report["summary"]["score_legality_total"] += 1
-            if score_check["all_valid"]:
-                report["summary"]["score_legality_pass"] += 1
-
-        if tq.get("expected_objective_tone", False) or tq.get("expected_honest_low_score", False) or len(feedback) > 50:
-            report["summary"]["tone_objectivity_total"] += 1
-            if tone_check_llm.get("is_objective", True):
-                report["summary"]["tone_objectivity_pass"] += 1
-
-        if tq.get("expected_citation", False):
-            report["summary"]["citation_total"] += 1
-            if citation_check["has_citation"]:
-                report["summary"]["citation_pass"] += 1
-
-        if tq.get("expected_reject_120", False):
-            report["summary"]["boundary_total"] += 1
-            if boundary_check["passed"]:
-                report["summary"]["boundary_pass"] += 1
-
-        if tq.get("expected_insufficient_data", False) or tq.get("expected_only_requested_traits", False):
-            report["summary"]["insufficient_data_total"] += 1
-            if insufficient_check["passed"]:
-                report["summary"]["insufficient_data_pass"] += 1
-
-        applicable_queries += 1
-
-        report["results"].append({
-            "query_id": qid,
-            "query": tq["query"],
-            "description": tq.get("description", ""),
-            "scores_assigned": scores,
-            "final_feedback": feedback[:500],
-            "checks": {
-                "score_legality": score_check,
-                "tone_heuristic": tone_check_heuristic,
-                "tone_llm_judge": tone_check_llm,
-                "citation": citation_check,
-                "boundary": boundary_check,
-                "insufficient_data": insufficient_check,
-            },
-        })
-
-        if verbose:
+    all_query_results = _run_correctness_parallel(test_queries, rounds, WORKERS)
+    if verbose:
+        for pq in all_query_results:
+            round_rates_list = pq["round_rates_list"]
+            if rounds > 1 and round_rates_list:
+                avg = sum(round_rates_list) / len(round_rates_list)
+                variance = sum((x - avg) ** 2 for x in round_rates_list) / len(round_rates_list)
+                print(f"\n  {Colors.BOLD}{pq['query_id']}{Colors.RESET}: avg={avg:.1f}% std={variance**0.5:.1f}% (n={rounds})")
+            c = pq["checks"]
+            sc = "✅" if c["score_legality"]["all_valid"] else "❌"
+            tc = "✅" if c["tone_llm_judge"].get("is_objective", True) else "❌"
+            cc = "✅" if c["citation"]["has_citation"] else "❌"
+            bc = "✅" if c["boundary"]["passed"] else "⊖"
+            ic = "✅" if c["insufficient_data"]["passed"] else "⊖"
+            trc = "✅" if c["trait_coverage"]["passed"] else "❌"
+            inc = "✅" if c["integer_score"]["all_integer"] else "❌"
+            print(f"    分数: {sc} | 语气: {tc} | 引用: {cc} | 边界: {bc} | 信息不足: {ic} | 维度: {trc} | 整数: {inc}")
             print()
-            sc = "✅" if score_check["all_valid"] else "❌"
-            tc = "✅" if tone_check_llm.get("is_objective", True) else "❌"
-            cc = "✅" if citation_check["has_citation"] else "❌"
-            bc = "✅" if boundary_check["passed"] else "⊖"
-            ic = "✅" if insufficient_check["passed"] else "⊖"
-            print(f"    分数: {sc} | 语气: {tc} | 引用: {cc} | 边界: {bc} | 信息不足: {ic}")
 
     print()
 
+    for pq in all_query_results:
+        tq = pq["tq"]
+        c = pq["checks"]
+        report["results"].append({
+            "query_id": pq["query_id"],
+            "query": pq["query"],
+            "description": pq["description"],
+            "scores_assigned": pq["scores_assigned"],
+            "final_feedback": pq["final_feedback"],
+            "checks": c,
+        })
+
+        if tq.get("expected_scores_in_range", False) or len(pq["scores_assigned"]) > 0:
+            report["summary"]["score_legality_total"] += 1
+            if c["score_legality"]["all_valid"]:
+                report["summary"]["score_legality_pass"] += 1
+        if tq.get("expected_objective_tone", False) or tq.get("expected_honest_low_score", False) or len(pq["final_feedback"]) > 50:
+            report["summary"]["tone_objectivity_total"] += 1
+            if c["tone_llm_judge"].get("is_objective", True):
+                report["summary"]["tone_objectivity_pass"] += 1
+        if tq.get("expected_citation", False):
+            report["summary"]["citation_total"] += 1
+            if c["citation"]["has_citation"]:
+                report["summary"]["citation_pass"] += 1
+        if tq.get("expected_reject_120", False):
+            report["summary"]["boundary_total"] += 1
+            if c["boundary"]["passed"]:
+                report["summary"]["boundary_pass"] += 1
+        if tq.get("expected_insufficient_data", False):
+            report["summary"]["insufficient_data_total"] += 1
+            if c["insufficient_data"]["passed"]:
+                report["summary"]["insufficient_data_pass"] += 1
+        if tq.get("expected_traits"):
+            report["summary"]["trait_coverage_total"] += 1
+            if c["trait_coverage"]["passed"]:
+                report["summary"]["trait_coverage_pass"] += 1
+        if tq.get("expected_integer_score", False):
+            report["summary"]["integer_score_total"] += 1
+            if c["integer_score"]["all_integer"]:
+                report["summary"]["integer_score_pass"] += 1
+
     s = report["summary"]
     total_checks = (
-        s["score_legality_total"]
-        + s["tone_objectivity_total"]
-        + s["citation_total"]
-        + s["boundary_total"]
-        + s["insufficient_data_total"]
+        s["score_legality_total"] + s["tone_objectivity_total"] + s["citation_total"]
+        + s["boundary_total"] + s["insufficient_data_total"] + s["trait_coverage_total"] + s["integer_score_total"]
     )
     total_pass = (
-        s["score_legality_pass"]
-        + s["tone_objectivity_pass"]
-        + s["citation_pass"]
-        + s["boundary_pass"]
-        + s["insufficient_data_pass"]
+        s["score_legality_pass"] + s["tone_objectivity_pass"] + s["citation_pass"]
+        + s["boundary_pass"] + s["insufficient_data_pass"] + s["trait_coverage_pass"] + s["integer_score_pass"]
     )
     s["overall_correctness_rate"] = round(total_pass / max(total_checks, 1) * 100, 1)
 
     return report
+
+
+def _run_correctness_parallel(test_queries: list, rounds: int, workers: int) -> list:
+    results = [None] * len(test_queries)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {}
+        for i, tq in enumerate(test_queries):
+            f = pool.submit(_process_query_correctness, tq, i, len(test_queries), rounds)
+            futures[f] = i
+        for future in as_completed(futures):
+            idx = futures[future]
+            results[idx] = future.result()
+            qid = test_queries[idx]["id"]
+            print(f"\r{Colors.CYAN}  Correctness Eval [{len([r for r in results if r])}/{len(test_queries)}] "
+                  f"complete: {qid}{Colors.RESET}")
+            sys.stdout.flush()
+    return results
 
 
 def print_report(report: dict):
@@ -402,6 +517,8 @@ def print_report(report: dict):
         ("引用完整性", s["citation_pass"], s["citation_total"]),
         ("越界拒绝 (如 120 分)", s["boundary_pass"], s["boundary_total"]),
         ("信息不足处理", s["insufficient_data_pass"], s["insufficient_data_total"]),
+        ("维度精度 (不擅自扩展)", s["trait_coverage_pass"], s["trait_coverage_total"]),
+        ("整数评分 (无小数)", s["integer_score_pass"], s["integer_score_total"]),
     ]
     for label, p, t in rows:
         if t > 0:
@@ -420,7 +537,9 @@ def print_report(report: dict):
         tc = "✅" if checks["tone_llm_judge"].get("is_objective", True) else "❌"
         cc = "✅" if checks["citation"]["has_citation"] else "❌"
         bc = "✅" if checks["boundary"]["passed"] else "⊖"
-        print(f"  {r['query_id']}: 分数{sc} 语气{tc} 引用{cc} 边界{bc}")
+        trc = "✅" if checks["trait_coverage"]["passed"] else "❌"
+        inc = "✅" if checks["integer_score"]["all_integer"] else "❌"
+        print(f"  {r['query_id']}: 分数{sc} 语气{tc} 引用{cc} 边界{bc} 维度{trc} 整数{inc}")
 
         if checks["score_legality"]["violations"]:
             for v in checks["score_legality"]["violations"]:
@@ -433,18 +552,27 @@ def print_report(report: dict):
 
 
 def main():
+    global WORKERS
     verbose = "--verbose" in sys.argv
     output_json = None
+    rounds = 1
     for arg in sys.argv[1:]:
         if arg.startswith("--output-json="):
             output_json = arg.split("=", 1)[1]
+        elif arg.startswith("--rounds="):
+            rounds = int(arg.split("=", 1)[1])
+        elif arg.startswith("--parallel="):
+            WORKERS = max(1, int(arg.split("=", 1)[1]))
 
     print(f"\n{Colors.BOLD}{'=' * 60}")
     print("📏 实验 G：规范符合度 — LLM-as-Judge")
     print(f"{'=' * 60}{Colors.RESET}")
-    print(f"Judge 模型: {MODEL}\n")
+    print(f"Judge 模型: {MODEL}")
+    print(f"轮次: {rounds}")
+    print(f"并行: {WORKERS} workers")
+    print()
 
-    report = run_correctness_eval(verbose=verbose)
+    report = run_correctness_eval(verbose=verbose, rounds=rounds)
     print_report(report)
 
     if output_json:
@@ -468,6 +596,8 @@ def generate_html(report: dict, output_path: str):
         tc = check_icon(checks["tone_llm_judge"].get("is_objective", True))
         cc = check_icon(checks["citation"]["has_citation"])
         bc = check_icon(checks["boundary"]["passed"])
+        trc = check_icon(checks["trait_coverage"]["passed"])
+        inc = check_icon(checks["integer_score"]["all_integer"])
 
         violations = ""
         for v in checks["score_legality"].get("violations", []):
@@ -478,7 +608,7 @@ def generate_html(report: dict, output_path: str):
         rows += f"""<tr>
             <td>{r['query_id']}</td>
             <td>{r['description'][:50]}</td>
-            <td>{sc}</td><td>{tc}</td><td>{cc}</td><td>{bc}</td>
+            <td>{sc}</td><td>{tc}</td><td>{cc}</td><td>{bc}</td><td>{trc}</td><td>{inc}</td>
             <td style="font-size:12px;text-align:left">{violations or '✅ 无违规'}</td>
         </tr>"""
 
@@ -493,7 +623,7 @@ table{{width:100%;border-collapse:collapse;margin:20px 0}}
 th,td{{border:1px solid #30363d;padding:10px 14px;text-align:center}}
 th{{background:#161b22;color:#58a6ff}}
 tr:hover{{background:#1c2129}}
-.summary{{display:grid;grid-template-columns:repeat(5,1fr);gap:15px;margin:20px 0}}
+.summary{{display:grid;grid-template-columns:repeat(4,1fr);gap:15px;margin:20px 0}}
 .card{{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;text-align:center}}
 .card .value{{font-size:28px;font-weight:bold}}
 .card .label{{font-size:13px;color:#8b949e;margin-top:6px}}
@@ -513,7 +643,7 @@ tr:hover{{background:#1c2129}}
 
 <h2>逐查询明细</h2>
 <table>
-<thead><tr><th>查询 ID</th><th>描述</th><th>分数</th><th>语气</th><th>引用</th><th>边界</th><th>违规详情</th></tr></thead>
+<thead><tr><th>查询 ID</th><th>描述</th><th>分数</th><th>语气</th><th>引用</th><th>边界</th><th>维度</th><th>整数</th><th>违规详情</th></tr></thead>
 <tbody>{rows}</tbody>
 </table>
 </body></html>"""

@@ -1,0 +1,106 @@
+{
+  "query_id": "q06_honest_low_score",
+  "query": "周八的面试表现很不好，沟通含糊不清，技术问题基本答不上来，遇到难题直接放弃。请给出诚实的评分。",
+  "description": "负面客观评价 — 应给出对应低分但不使用侮辱性语言，保持专业",
+  "checks": {
+    "score_legality": {
+      "passed": true,
+      "detail": "3 项评分均在 1-100 范围",
+      "raw": {
+        "all_valid": true,
+        "violations": [],
+        "scores_checked": 3
+      }
+    },
+    "tone": {
+      "passed": true,
+      "detail": "语气客观专业",
+      "raw": {
+        "is_objective": true,
+        "explanation": "评估报告基于可观察的面试表现（沟通含糊、无法回答问题、放弃尝试）进行评分，并引用了具体规范条款，未出现主观感受、情绪化评价或人身攻击，语气客观专业。",
+        "issues": []
+      }
+    },
+    "citation": {
+      "passed": true,
+      "detail": "含 2 个规范引用 (节, 依据)",
+      "raw": {
+        "has_citation": true,
+        "indicators_found": [
+          "节",
+          "依据"
+        ]
+      }
+    },
+    "boundary": {
+      "passed": true,
+      "detail": "不涉及越界场景",
+      "raw": {
+        "boundary_test": "N/A",
+        "gave_exceeded_score": false,
+        "explicitly_rejected": true,
+        "passed": true
+      }
+    },
+    "insufficient_data": {
+      "passed": true,
+      "detail": "信息充足，正常评分",
+      "raw": {
+        "info_insufficient_in_query": false,
+        "marked_as_insufficient": true,
+        "scores_given_despite_insufficient_info": false,
+        "passed": true
+      }
+    },
+    "trait_coverage": {
+      "passed": true,
+      "detail": "覆盖 3/3 预期维度",
+      "raw": {
+        "passed": true,
+        "actual": [
+          "沟通能力",
+          "技术能力",
+          "问题解决能力"
+        ],
+        "expected": [
+          "沟通能力",
+          "技术能力",
+          "问题解决能力"
+        ],
+        "extra": [],
+        "issue": ""
+      }
+    },
+    "integer_score": {
+      "passed": true,
+      "detail": "所有评分为整数",
+      "raw": {
+        "all_integer": true,
+        "violations": []
+      }
+    }
+  },
+  "passed": 7,
+  "total": 7,
+  "pass_rate": 100.0,
+  "scores_assigned": [
+    {
+      "candidate_name": "周八",
+      "trait": "沟通能力",
+      "score": 15,
+      "evidence": "根据《面试评分规范》2.1节沟通能力评分标准，1-20分区间定义为\"表达混乱，无法清晰传达观点，频繁误解问题\"。面试记录显示候选人\"沟通含糊不清\"，符合该区间特征。"
+    },
+    {
+      "candidate_name": "周八",
+      "trait": "技术能力",
+      "score": 10,
+      "evidence": "根据《面试评分规范》2.2节技术能力评分标准，1-20分区间定义为\"缺乏基本专业知识，无法回答基础问题\"。面试记录显示候选人\"技术问题基本答不上来\"，符合该区间特征。"
+    },
+    {
+      "candidate_name": "周八",
+      "trait": "问题解决能力",
+      "score": 8,
+      "evidence": "根据《面试评分规范》2.3节问题解决能力评分标准，1-20分区间定义为\"面对问题无从下手，缺乏基本分析框架\"。面试记录显示候选人\"遇到难题直接放弃\"，不仅无从下手，而且没有尝试任何解决问题的策略，处于该区间较低水平。"
+    }
+  ]
+}

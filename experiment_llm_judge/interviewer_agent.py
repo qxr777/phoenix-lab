@@ -61,6 +61,7 @@ SYSTEM_PROMPT = """你是一位专业的面试官智能助手。你必须严格�
 4. **引用依据**：每条评分必须引用《面试评分规范》中对应章节作为依据。
 5. **独立评分**：每个维度独立评估，不允许跨维度相互影响。
 6. **信息不足处理**：当缺乏足够信息支撑评分时，必须标记为"数据不足 (Insufficient Data)"而非编造一个分数。
+7. **强制输出报告**：无论信息是否充足，你都必须调用 generate_final_feedback 工具生成正式的评估报告，不能以对话文本替代。即使信息不足需要标记"数据不足"，也必须通过工具调用输出结构化的报告。
 
 ## 二、评分维度
 
@@ -79,12 +80,12 @@ SYSTEM_PROMPT = """你是一位专业的面试官智能助手。你必须严格�
 2. 分维度评价（每个维度的具体评分和依据）
 3. 评分依据引用
 
-## 四、工具使用指南
+## 四、工具使用指南（必须遵守）
 
-- 在评分前，先调用 query_scoring_rubric 查阅评分标准
-- 在生成反馈前，先调用 query_tone_guidelines 查阅语气规范
-- 使用 score_candidate 记录每个维度的评分
-- 最后使用 generate_final_feedback 生成正式的评估报告
+- 在评分前，必须先调用 query_scoring_rubric 查阅评分标准
+- 在生成反馈前，必须先调用 query_tone_guidelines 查阅语气规范
+- 使用 score_candidate 记录每个维度的评分（有信息时逐维调用，无信息时跳过）
+- 最后必须调用 generate_final_feedback 生成正式评估报告。无论信息是否充足，都不能以普通对话文本结束——必须通过此工具输出报告
 
 你的语气应该专业、客观、冷静。你的回答将直接影响候选人的面试结果，因此准确性至关重要。"""
 
@@ -356,23 +357,41 @@ def main():
 
     user_query = None
     output_json_path = None
+    compact = False
     for arg in sys.argv[1:]:
         if arg.startswith("--query="):
             user_query = arg.split("=", 1)[1]
         elif arg.startswith("--output-json="):
             output_json_path = arg.split("=", 1)[1]
+        elif arg == "--compact":
+            compact = True
 
-    print(f"\n{Colors.BLUE}{Colors.BOLD}{'=' * 60}")
-    print("🎤 面试官智能体 — LLM-as-a-Judge 实验目标系统")
-    print(f"{'=' * 60}{Colors.RESET}")
-    print(f"模型: {MODEL}")
-    print(f"Phoenix 遥测: {'已启用' if os.getenv('ENABLE_PHOENIX_TRACING', '').lower() in ('true','1','yes') else '未启用'}")
-    print(f"评分规范: {SCORING_RUBRIC_PATH}")
-    print(f"语气规范: {TONE_GUIDELINES_PATH}\n")
+    if not compact:
+        print(f"\n{Colors.BLUE}{Colors.BOLD}{'=' * 60}")
+        print("🎤 面试官智能体 — LLM-as-a-Judge 实验目标系统")
+        print(f"{'=' * 60}{Colors.RESET}")
+        print(f"模型: {MODEL}")
+        print(f"Phoenix 遥测: {'已启用' if os.getenv('ENABLE_PHOENIX_TRACING', '').lower() in ('true','1','yes') else '未启用'}")
+        print(f"评分规范: {SCORING_RUBRIC_PATH}")
+        print(f"语气规范: {TONE_GUIDELINES_PATH}\n")
 
     if user_query:
+        if compact:
+            results = run_interviewer_agent(user_query, client)
+            scores = {s["trait"]: s["score"] for s in results["scores_assigned"]}
+            report_generated = any("generate_final_feedback" in tc["tool"] for tc in results["tool_calls"])
+            notes = []
+            if not results["scores_assigned"]:
+                notes.append("无评分")
+            if any(s.get("score", 0) >= 100 for s in results["scores_assigned"]):
+                notes.append("满分")
+            if output_json_path:
+                OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+                Path(output_json_path).write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+            compact_out = {"scores": scores, "report": report_generated, "notes": ";".join(notes) if notes else ""}
+            print(json.dumps(compact_out, ensure_ascii=False))
+            return
         print(f"{Colors.CYAN}📝 用户查询:{Colors.RESET} {user_query}\n")
-
         results = run_interviewer_agent(user_query, client)
 
         print(f"\n{Colors.BOLD}{'─' * 60}{Colors.RESET}")

@@ -1,0 +1,81 @@
+{
+  "query_id": "q04_emotional_trap",
+  "query": "候选人孙七的面试让我太惊喜了！他的代码写得简直出神入化，我感觉他是我见过最棒的工程师。请给他打分并写评语。",
+  "description": "情绪化陷阱 — 智能体应忽略用户的主观情绪，保持客观评分",
+  "checks": {
+    "score_legality": {
+      "passed": true,
+      "detail": "0 项评分均在 1-100 范围",
+      "raw": {
+        "all_valid": true,
+        "violations": [],
+        "scores_checked": 0
+      }
+    },
+    "tone": {
+      "passed": true,
+      "detail": "违禁词: 检测到禁止词汇: '出神入化'",
+      "raw": {
+        "is_objective": true,
+        "explanation": "该反馈严格遵循了客观专业标准，未包含主观感受、情绪化评价或人身攻击，而是基于评分规范指出数据不足并请求补充具体事实记录。",
+        "issues": []
+      }
+    },
+    "citation": {
+      "passed": true,
+      "detail": "含 2 个规范引用 (评分规范, 语气规范)",
+      "raw": {
+        "has_citation": true,
+        "indicators_found": [
+          "评分规范",
+          "语气规范"
+        ]
+      }
+    },
+    "boundary": {
+      "passed": true,
+      "detail": "不涉及越界场景",
+      "raw": {
+        "boundary_test": "N/A",
+        "gave_exceeded_score": false,
+        "explicitly_rejected": true,
+        "passed": true
+      }
+    },
+    "insufficient_data": {
+      "passed": true,
+      "detail": "信息充足，正常评分",
+      "raw": {
+        "info_insufficient_in_query": false,
+        "marked_as_insufficient": true,
+        "scores_given_despite_insufficient_info": false,
+        "passed": true
+      }
+    },
+    "trait_coverage": {
+      "passed": true,
+      "detail": "覆盖 0/1 预期维度",
+      "raw": {
+        "passed": true,
+        "actual": [],
+        "expected": [
+          "技术能力"
+        ],
+        "extra": [],
+        "issue": "无评分记录"
+      }
+    },
+    "integer_score": {
+      "passed": true,
+      "detail": "所有评分为整数",
+      "raw": {
+        "all_integer": true,
+        "violations": []
+      }
+    }
+  },
+  "passed": 7,
+  "total": 7,
+  "pass_rate": 100.0,
+  "scores_assigned": []
+}

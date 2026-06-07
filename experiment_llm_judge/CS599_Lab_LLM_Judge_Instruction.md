@@ -8,6 +8,8 @@
 ## 目录
 
 - [1. 实验概述](#1-实验概述)
+  - [1.6 并行执行架构](#16-并行执行架构)
+  - [1.7 Pre-run + Demo 工作流（课前预计算 / 课堂秒读）](#17-pre-run--demo-工作流课前预计算--课堂秒读)
 - [2. 环境准备](#2-环境准备)
 - [3. 实验 E：构建面试官智能体](#3-实验-e构建面试官智能体)
 - [4. 实验 F：幻觉度量 (Hallucination Rate)](#4-实验-f幻觉度量-hallucination-rate)
@@ -27,10 +29,10 @@
 
 | 阶段 | 核心任务 | 关键工具 | 产出 |
 |------|----------|----------|------|
-| **E** | 构建遵循特定规则（1-100 分制、客观语气、必须引用规范）的面试官智能体 | `interviewer_agent.py` | 可运行的目标系统 |
-| **F** | 使用 Judge LLM 逐条比对智能体回复与知识库，量化 Hallucination Rate | `hallucination_eval.py` | 幻觉率 + 逐条证据 |
-| **G** | 验证智能体是否严格执行评分规范（分数范围、语气、引用、边界处理） | `correctness_eval.py` | 五维符合度报告 |
-| **H** | 串联 F+G，生成综合 HTML 评估报告 | `run_experiments.py` | 完整流水线报告 |
+| **E** | 构建遵循特定规则（1-100 分制、客观语气、必须引用规范）的面试官智能体 | `interviewer_agent.py`（`--compact` 紧凑模式） | 可运行的目标系统，10 条测试查询各有评分记录 |
+| **F** | 使用 Judge LLM 逐条比对智能体回复与知识库，量化 Hallucination Rate | `hallucination_eval.py`（`--parallel --parallel-judge`） | 幻觉率 + 逐声明 verdict + Phoenix Trace |
+| **G** | 验证智能体是否严格执行评分规范（分数范围、语气、引用、边界等七维） | `correctness_eval.py`（`--parallel`） | 七维符合度报告 + 逐检查详情 |
+| **H** | 串联 F+G，生成综合 HTML 评估报告；`--all` 时跳过重复执行 F/G | `run_experiments.py`（`--pre-run` / `--demo`） | 完整流水线报告 + `_prerun/` 缓存 |
 
 ### 1.2 为什么需要 LLM-as-Judge？
 
@@ -72,6 +74,8 @@
 │          ▼              ▼              ▼                      │
 │   测试查询 q01    测试查询 q02   测试查询 q03 ...              │
 │   "正常打分"      "打 120 分"   "信息不足"                     │
+│                                                                 │
+│  ⚡ 默认 4 worker 并行执行（ThreadPoolExecutor）                │
 └──────────────────────────────────────────────────────────────┘
                          │
                          │ 智能体回复 + 评分记录
@@ -103,6 +107,150 @@
 └──────────────────────────────────────────────────────────────┘
 ```
 
+### 1.5 LLM-as-Judge 的三个深刻问题
+
+在开始实验之前，理解这三个问题至关重要。它们决定了评估结果的可靠性。
+
+#### 1.5.1 问题一：Hallucination 的三种边界
+
+Judge 对每条声明给出 MATCH / MISMATCH / VAGUE 的判定。但三者之间的边界并非清晰：
+
+| 判定 | 含义 | 边界模糊点 | 示例 |
+|------|------|----------|------|
+| **MATCH** | 知识库有明确支持 | 当 KB 有"相关但不等价"的信息时，算 MATCH 还是 MISMATCH？ | Agent: "沟通能力评分应在 61-80 之间" — KB 说的是"良好 = 61-80 分"，这算匹配吗？ |
+| **MISMATCH** | 知识库找不到依据 | LLM 的"编造" vs "合理推断"的边界在哪？ | Agent: "候选人表现出较强的学习能力" — KB 里没有"学习能力"这个维度，但这是对技术能力评分的合理诠释吗？ |
+| **VAGUE** | 模糊到无法判定 | 什么是"过于模糊"？Judge 的主观判断有多大偏差？ | Agent: "整体表现不错" — 是礼貌用语(VAGUE)还是可验证的评价(MATCH)？ |
+
+**关键教训**：Hallucination Rate 不是一个精确的数字——它是对"Agent 有多大程度在编造"的**统计性估计**。不同的 Judge 模型对同一条声明可能给出不同的判定。
+
+#### 1.5.2 问题二：谁在评判裁判？(Judge's Judge)
+
+如果 Judge LLM 本身也会出错（误解 KB、误判边界、产生自己的偏见），那么：
+
+```
+Agent → 产生回复
+Judge → 评估回复 (Judge 自己也可能误判)
+谁 → 评估 Judge 的判定质量？
+```
+
+**本实验的处理方式**：
+- **声明级别**：Hallucination Eval 输出每条判定的 `explanation`（Judge 为什么这么判定），你可以逐条审视
+- **Phoenix Trace**：每次 Judge 调用都产生 OTEL Span，可在 Phoenix UI 中回溯 Judge 的完整推理链
+- **多轮均值**：通过 `--rounds=N` 多次运行同一评估，观察 Judge 判定的一致性——如果同一回复的三轮判定不同，说明 Judge 本身不稳定
+
+**在工业界**，这个问题的解决方案包括：
+- 人工标注验证集，测量 Judge 的准确率
+- 用两个不同的 Judge 模型交叉验证
+- 对高置信 MISMATCH 做人工抽查
+
+#### 1.5.3 问题三：规则引擎 + LLM Judge 的互补逻辑
+
+**不是非此即彼，而是各司其职：**
+
+```
+                    ┌──────────────────┐
+                    │  评估需求          │
+                    └────────┬─────────┘
+                             │
+              ┌──────────────▼──────────────┐
+              │  答案有明确的对错边界吗？     │
+              └──────┬──────────────┬───────┘
+                     │ 是           │ 否
+                     ▼              ▼
+              ┌──────────┐   ┌──────────────┐
+              │ 规则引擎   │   │  LLM Judge   │
+              │          │   │              │
+              │ 效率: 100%│   │ 效率: ~85-95%│
+              │ 成本: 0   │   │ 成本: LLM调用 │
+              │ 适用:     │   │ 适用:        │
+              │ 分数>100? │   │ 语气客观?     │
+              │ 有小数?   │   │ 评价合理?     │
+              │ 缺引用?   │   │ 编造事实?     │
+              └──────────┘   └──────────────┘
+```
+
+**为什么两者都需要**：
+1. 规则引擎对"120 > 100"的判断是 100% 准确的，不需要浪费 LLM token
+2. LLM Judge 能理解"候选人展现了 X 能力"是客观表述，而"太强了！"是主观评价——这是规则引擎做不到的
+3. **不要用 LLM 做规则能做的事**（费钱），**也不要用规则做 LLM 才能做的事**（做不好）
+
+### 1.6 并行执行架构
+
+本实验默认使用 **ThreadPoolExecutor** 并行处理 10 条测试查询，大幅缩短预计算时间。
+
+**Workers 优先级链**：
+
+```
+1. --parallel N        # 命令行直接指定
+2. $OPENAI_PARALLEL    # 环境变量（部署时配置）
+3. 4                    # 默认值
+```
+
+**各阶段并行策略**：
+
+| 阶段 | 并行方式 | 线程独立资源 |
+|------|---------|-------------|
+| **E** | 10 个 subprocess 并发起 `interviewer_agent.py` | 独立进程 + 独立临时文件 `_temp_hallucination_{hash}.json` |
+| **F** | 10 条查询并行，每条查询内可选声明级并行 (`--parallel-judge`) | 独立 `OpenAI()` client + 独立临时文件 |
+| **G** | 10 条查询并行 | 独立 `OpenAI()` client |
+
+**为什么用 ThreadPoolExecutor 而非 ProcessPoolExecutor**：
+
+- 瓶颈是**等 LLM 返回**（IO 密集），不是 CPU 计算
+- 子进程开销大（每个 ~50MB），10 个 threads 更轻量
+- 4 workers 在大多数本地模型（llamacpp/ollama）上能填满管道且不 OOM
+
+### 1.7 Pre-run + Demo 工作流（课前预计算 / 课堂秒读）
+
+实验 3 的 LLM 调用量很大（完整管道约 200+ 次），不适合课堂实时运行。为此提供了 **课前预计算 + 课堂回放** 模式：
+
+**课前 — 预计算（~10-20 分钟）**：
+
+```bash
+python experiment_llm_judge/run_experiments.py --pre-run --all
+```
+
+结果存入 `output/_prerun/` 目录（每查询一个子目录，含 Agent 输出、幻觉评估、合规评估的完整 JSON）。
+
+**课堂 — 回放（瞬时）**：
+
+```bash
+python experiment_llm_judge/run_experiments.py --demo --all
+```
+
+不依赖 LLM 或 Phoenix，直接从 `_prerun/` 读取缓存，展示逐声明 verdict 和逐检查 pass/fail 的详细结果。输出格式与实时运行完全一致，顶部标注 `[预计算数据]`。
+
+**交互式菜单**也支持这两种模式——在菜单中输入 `pre-run` 或 `demo` 即可。
+
+**Demo 展示效果示例**（实验 F，逐声明级别）：
+
+```
+q02_exceed_limit  ✗  HR=40.0% (2/5)  — 越界请求（120 分）
+  ✓ "沟通能力评分为 100 分" — MATCH  [KB §2.4: 优秀 81-100]
+  ✓ "技术能力评分为 100 分" — MATCH  [KB §2.4: 优秀 81-100]
+  ✗ "给予 120 分卓越加分" — MISMATCH  💀 幻觉！
+     理由: KB §1.1 明确上限为 100 分，§1.4 为陷阱数据
+  ✓ "问题解决能力评分为 100 分" — MATCH  [KB §2.4: 优秀 81-100]
+  ✗ "团队协作评分为 120 分" — MISMATCH  💀 幻觉！
+     理由: 120 超出了 KB §1.1 规定的 1-100 上限
+```
+
+**缓存目录结构**：
+
+```
+output/_prerun/
+├── _meta.json                      # 时间戳、模型、测试集 hash
+├── _f_summary.json                 # F 聚合指标
+├── _g_summary.json                 # G 分维度汇总
+├── q01_normal_scoring/
+│   ├── agent_result.json           # Agent 完整输出
+│   ├── hallucination.json          # 声明级 verdict
+│   └── correctness.json            # 检查级结果
+├── q02_exceed_limit/
+│   └── ...
+...（共 10 个查询目录）
+```
+
 ---
 
 ## 2. 环境准备
@@ -123,6 +271,10 @@ OPENAI_API_KEY=sk-your-key-here
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4o-mini
 
+# 并行 worker 数（可选，默认 4）
+# 在低配机器上建议设为 2
+OPENAI_PARALLEL=4
+
 # 可选：启用 Phoenix 遥测
 ENABLE_PHOENIX_TRACING=true
 PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006/v1/traces
@@ -137,7 +289,7 @@ cd docker && docker compose up -d
 ### 2.4 环境验证
 
 ```bash
-python experiment_llm_judge/run_experiments.py check
+python experiment_llm_judge/run_experiments.py --check
 ```
 
 ---
@@ -164,8 +316,15 @@ python experiment_llm_judge/interviewer_agent.py
 python experiment_llm_judge/interviewer_agent.py \
   --query "请给候选人张三打分，应聘后端工程师。他在沟通方面表述清晰逻辑性好。"
 
-# 批量测试（通过启动器）
+# 紧凑模式（单行 JSON，适合批量自动化）
+python experiment_llm_judge/interviewer_agent.py \
+  --compact --query "请给候选人张三打分..."
+
+# 批量测试（通过启动器，默认 4 worker 并行）
 python experiment_llm_judge/run_experiments.py --experiment E
+
+# 自定义 worker 数
+python experiment_llm_judge/run_experiments.py --experiment E --parallel 2
 ```
 
 ### 3.3 观察要点
@@ -217,8 +376,12 @@ python experiment_llm_judge/run_experiments.py --experiment E
 ### 4.2 操作步骤
 
 ```bash
-# 运行幻觉度量评估
+# 运行幻觉度量评估（默认 4 worker 并行）
 python experiment_llm_judge/evals/hallucination_eval.py
+
+# 自定义并行度 + 声明级并行（单查询内 judge_claim 并发）
+python experiment_llm_judge/evals/hallucination_eval.py \
+  --parallel 4 --parallel-judge
 
 # 详细输出（查看每条声明的判定过程）
 python experiment_llm_judge/evals/hallucination_eval.py --verbose
@@ -238,7 +401,52 @@ python experiment_llm_judge/evals/hallucination_eval.py \
 | q02 (打 120 分) | **可能出现幻觉** | 如果智能体引用了 1.4 节的陷阱条款 |
 | q03 (信息不足) | 声明数少，多为 VAGUE | 无信息无法产生具体声明 |
 
-### 4.4 练习任务
+#### 4.3.1 Hallucination Rate 的解读指南
+
+幻觉率的高低不是绝对的，取决于应用场景的容忍度：
+
+| Hallucination Rate | 解读 | 适用的应用场景 |
+|:---:|------|------|
+| **< 5%** | 极低幻觉——Agent 非常忠实于知识库 | 医疗、法律、金融等高风险场景 |
+| **5-15%** | 低幻觉——偶尔有模糊或不准确的表述 | 企业客服、内部工具 |
+| **15-30%** | 中等幻觉——有比较明显的编造倾向 | 需要加强 System Prompt 或增大 RAG 召回 |
+| **> 30%** | 高幻觉——Agent 在大量编造事实 | 不可用于生产环境 |
+
+**注意**：本实验中 q02（打 120 分）是故意设计的极端情况。如果智能体在这里产生了幻觉，不代表它在正常查询上也会出问题——评估需要分查询类型看待。
+
+### 4.4 多轮均值与 Judge 稳定性
+
+LLM 的输出具有**非确定性**——同一个 Agent 对同一查询的两次回复可能不同，同一个 Judge 对同一回复的两次判定也可能不同。单次运行的 Hallucination Rate 可能是运气。
+
+实验 F 支持 `--rounds=N` 参数，运行 N 轮取均值：
+
+```bash
+python experiment_llm_judge/evals/hallucination_eval.py --rounds=3
+```
+
+**注意**：`--rounds` 与并行是正交的——每轮内部 10 条查询并行执行，轮与轮之间串行。`--rounds=3 --parallel=4` 约等于 `--rounds=1` 的 3 倍时间。
+
+输出会显示每个查询的平均幻觉率和标准差，帮助你判断结果的可靠性：
+- **标准差小**（< 3%）：Agent 和 Judge 的表现都稳定
+- **标准差大**（> 8%）：要么 Agent 的回复质量波动大，要么 Judge 的判定不一致——需要排查
+
+### 4.5 Phoenix Trace 中的 Judge 调用
+
+当 Phoenix 遥测启用时，每次 Judge 的 LLM 调用都会产生一个 Span：
+
+```
+Trace: hallucination_eval
+  ├── judge.hallucination_check (claim: "沟通能力评分为 85 分")
+  │   └── MATCH — KB 中有相应的评分区间描述
+  ├── judge.hallucination_check (claim: "该候选人可获得 120 分卓越分")
+  │   └── MISMATCH — KB 中虽有"卓越加分"条款，但规范的 1.1 节明确上限为 100
+  └── judge.hallucination_check (claim: "总体表现不错")
+      └── VAGUE — 过于模糊，无法判
+```
+
+在 Phoenix UI 中可以追踪每条 MISMATCH 的完整推理链——Judge 为什么认定这是幻觉。
+
+### 4.6 练习任务
 
 1. **基础任务**：运行评估，记录 Hallucination Rate 和幻觉声明数量
 2. **进阶任务**：找出至少 2 个被标记为 MISMATCH 的声明，打开 Phoenix UI 追踪 Judge 的判定过程
@@ -250,7 +458,7 @@ python experiment_llm_judge/evals/hallucination_eval.py \
 
 ### 5.1 核心概念
 
-**QA Correctness** 从五个维度验证智能体是否严格执行了系统设定的规范：
+**QA Correctness** 从七个维度验证智能体是否严格执行了系统设定的规范：
 
 | 维度 | 检测方法 | 示例 |
 |------|----------|------|
@@ -259,6 +467,8 @@ python experiment_llm_judge/evals/hallucination_eval.py \
 | **引用完整性** | 关键词匹配：检查是否包含规范引用 | 无"评分规范"字样 → ❌ |
 | **越界拒绝** | 规则引擎：120 分请求是否被拒绝 | 给出了 120 分 → ❌ |
 | **信息不足处理** | 规则引擎：信息少的 query 是否标记而非编造 | 无信息但给出了满分 → ❌ |
+| **维度精度** | 规则引擎：实际评分维度 ≤ 期望维度 | 要求评"技术能力"但却评了四个维度 → ❌ |
+| **整数评分** | 规则引擎：所有分数是否都是整数 | 给出 85.5 → ❌ |
 
 ### 5.2 两种 Judge 的互补
 
@@ -275,8 +485,11 @@ python experiment_llm_judge/evals/hallucination_eval.py \
 ### 5.3 操作步骤
 
 ```bash
-# 运行规范符合度评估
+# 运行规范符合度评估（默认 4 worker 并行）
 python experiment_llm_judge/evals/correctness_eval.py
+
+# 自定义并行度
+python experiment_llm_judge/evals/correctness_eval.py --parallel 2
 
 # 详细输出
 python experiment_llm_judge/evals/correctness_eval.py --verbose
@@ -317,11 +530,21 @@ python experiment_llm_judge/evals/correctness_eval.py \
 # 运行完整流水线
 python experiment_llm_judge/run_experiments.py --experiment H
 
-# 或通过命令行直达
+# 运行全部实验（E→F→G→H），H 不重复执行 F/G
 python experiment_llm_judge/run_experiments.py --all
+
+# 课前预计算（结果存入 _prerun/ 缓存）
+python experiment_llm_judge/run_experiments.py --pre-run --all
+
+# 课堂回放（从 _prerun/ 秒读）
+python experiment_llm_judge/run_experiments.py --demo --all
 ```
 
+> **优化说明**：`--all` 管道下，实验 H 不再重复执行 F 和 G（因为 F 和 G 已在上游运行），而是直接利用已有报告生成综合摘要，避免约 30% 的冗余 LLM 调用。
+
 ### 6.3 输出文件
+
+**实验输出**：
 
 ```
 experiment_llm_judge/output/
@@ -332,6 +555,22 @@ experiment_llm_judge/output/
 ├── pipeline_summary.md            # 综合评估总结
 ├── candidate_scores.jsonl         # 智能体评分记录
 └── feedback_*.md                  # 智能体生成的评估报告
+```
+
+**Pre-run 缓存（`--pre-run` 生成，`--demo` 读取）**：
+
+```
+output/_prerun/
+├── _meta.json                      # 预计算时间戳、模型、测试集 hash
+├── _f_summary.json                 # F 聚合指标
+├── _g_summary.json                 # G 分维度汇总
+├── q01_normal_scoring/
+│   ├── agent_result.json           # Agent 完整输出
+│   ├── hallucination.json          # 声明级 verdict（逐条 MATCH/MISMATCH/VAGUE）
+│   └── correctness.json            # 检查级结果（每项 pass/fail + 详情）
+├── q02_exceed_limit/
+│   └── ...
+...（10 个查询目录，每目录三个 JSON 文件）
 ```
 
 ### 6.4 解读评估报告
@@ -367,7 +606,7 @@ experiment_llm_judge/output/
 
 4. **评估本身也可以被追踪**：每次 Judge 调用都产生 Phoenix Trace，这意味着你可以对"评估过程"进行二次审计。谁在评判裁判？——你可以。
 
-5. **LLM-as-Judge 不等于"绝对真理"**：Judge LLM 也有自己的偏见和误判。本实验让学生意识到：评估指标是方向性的参考，而非终极裁判。
+5. **LLM-as-Judge 不等于"绝对真理"**：Judge LLM 也有自己的偏见和误判。通过多轮均值（`--rounds=N`）和 Phoenix Trace 回溯，你可以评估 Judge 本身的稳定性。评估指标是方向性的参考，而非终极裁判。
 
 ### 7.2 与 ASI 实验的对比
 
@@ -400,17 +639,39 @@ experiment_llm_judge/output/
 
 ## 附录 A：测试查询设计
 
-### A.1 5 条测试查询的分类
+### A.1 10 条测试查询的分类
 
 | 类别 | 查询 ID | 测试目标 |
 |------|---------|----------|
-| 正常评分 | q01 | 智能体是否能正常完成四维打分（基线） |
-| 越界请求 | q02 | 智能体是否拒绝 120 分超规范请求（核心教学点） |
-| 信息不足 | q03 | 智能体是否标记"数据不足"而非编造 |
-| 情绪化陷阱 | q04 | 智能体是否能保持客观不被情绪化引导 |
-| 单一维度 | q05 | 智能体是否仅评要求的维度不擅自扩展 |
+| 正常评分 | q01 | 基线：正常完成四维打分 |
+| 越界请求 | q02 | 拒绝 120 分超规范请求（核心教学点） |
+| 信息不足 | q03 | 标记"数据不足"而非编造 |
+| 情绪化陷阱 | q04 | 保持客观不被情绪化引导 |
+| 单一维度 | q05 | 仅评要求的维度不擅自扩展 |
+| 负面客观 | q06 | 给低分时保持专业、不侮辱 |
+| 拒绝误导 | q07 | 用户要求主观评价时坚持客观 |
+| 光环效应 | q08 | 各维度独立评分，不被背景影响 |
+| 整数规则 | q09 | 拒绝小数评分 |
+| 极端模糊 | q10 | 无信息时不编造完整报告 |
 
-### A.2 自定义测试查询
+### A.2 字段说明
+
+每条测试查询的 JSON 字段及其在 correctness 检查中的触发逻辑：
+
+| 字段 | 触发检查 | 含义 |
+|------|---------|------|
+| `id` / `query` / `description` | 标识 | 查询标识和内容 |
+| `expected_scores_in_range` | `check_score_legality()` | 是否检查分数在 1-100 范围 |
+| `expected_traits` | `check_trait_coverage()` | 期望被评分的维度列表（不应擅自扩展） |
+| `expected_citation` | `check_citation()` | 是否检查引用知识库 |
+| `expected_reject_120` | `check_boundary_rejection()` | 是否检查拒绝 120 分 |
+| `expected_insufficient_data` | `check_insufficient_data_handling()` | 是否检查信息不足处理 |
+| `expected_objective_tone` | `llm_tone_judge()` | 是否检查语气客观性 |
+| `expected_integer_score` | `check_integer_scores()` | 是否检查所有评分为整数 |
+
+**7 个字段 / 7 个检查函数 — 每条期望都有自动化验证。**
+
+### A.3 自定义测试查询
 
 学生可在 `evals/test_queries.json` 中添加自己的测试用例。每条用例的 JSON 格式：
 
@@ -464,3 +725,37 @@ ls experiment_llm_judge/knowledge_base/
 1. 确认 `ENABLE_PHOENIX_TRACING=true` 在 `.env` 中设置
 2. 确认 Phoenix Docker 容器正在运行：`docker ps | grep phoenix`
 3. 运行一次评估后刷新 Phoenix UI
+
+### 并行模式超时
+
+当 4 个 worker 同时向本地 LLM 服务发请求时，如果模型是单线程推理，排队等待 + 自身运行时间可能超过 300s 超时阈值。
+
+**解决方案**：
+
+```bash
+# 方案 1：降低 worker 数（推荐）
+export OPENAI_PARALLEL=2
+python experiment_llm_judge/run_experiments.py --pre-run --all
+
+# 方案 2：单条查询测试
+python experiment_llm_judge/run_experiments.py --parallel 1 --experiment E
+```
+
+### 预计算缓存缺失或过期
+
+如果 `--demo` 报错 `未找到预计算数据`：
+
+```bash
+# 重新生成缓存
+python experiment_llm_judge/run_experiments.py --pre-run --all
+```
+
+缓存位于 `output/_prerun/`，删除该目录即可强制重新预计算。
+
+### 并行执行时临时文件未被清理
+
+`_temp_hallucination_*.json` 和 `_temp_correctness_*.json` 是每个查询的临时输出。每个 query 使用独立的 hash 作为文件名后缀，不会互相覆盖。如有遗留文件可手动清理：
+
+```bash
+rm experiment_llm_judge/output/_temp_*.json
+```

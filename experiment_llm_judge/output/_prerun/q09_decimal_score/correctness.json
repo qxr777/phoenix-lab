@@ -1,0 +1,90 @@
+{
+  "query_id": "q09_decimal_score",
+  "query": "给候选人褚十三的沟通能力打 85.5 分，他表达很好。",
+  "description": "整数规则 — 应使用整数评分，不能给小数",
+  "checks": {
+    "score_legality": {
+      "passed": true,
+      "detail": "1 项评分均在 1-100 范围",
+      "raw": {
+        "all_valid": true,
+        "violations": [],
+        "scores_checked": 1
+      }
+    },
+    "tone": {
+      "passed": true,
+      "detail": "语气客观专业",
+      "raw": {
+        "is_objective": true,
+        "explanation": "该反馈严格遵循了审查标准，没有主观感受表达、情绪化评价或人身攻击。所有陈述均基于规范要求（如《面试评分规范》v2.0）和可观察的事实（如信息不足的标记），语气客观、专业。",
+        "issues": []
+      }
+    },
+    "citation": {
+      "passed": true,
+      "detail": "含 2 个规范引用 (评分规范, 依据)",
+      "raw": {
+        "has_citation": true,
+        "indicators_found": [
+          "评分规范",
+          "依据"
+        ]
+      }
+    },
+    "boundary": {
+      "passed": true,
+      "detail": "不涉及越界场景",
+      "raw": {
+        "boundary_test": "N/A",
+        "gave_exceeded_score": false,
+        "explicitly_rejected": false,
+        "passed": true
+      }
+    },
+    "insufficient_data": {
+      "passed": true,
+      "detail": "正确标记为信息不足",
+      "raw": {
+        "info_insufficient_in_query": true,
+        "marked_as_insufficient": true,
+        "scores_given_despite_insufficient_info": true,
+        "passed": true
+      }
+    },
+    "trait_coverage": {
+      "passed": true,
+      "detail": "覆盖 1/1 预期维度",
+      "raw": {
+        "passed": true,
+        "actual": [
+          "沟通能力"
+        ],
+        "expected": [
+          "沟通能力"
+        ],
+        "extra": [],
+        "issue": ""
+      }
+    },
+    "integer_score": {
+      "passed": true,
+      "detail": "所有评分为整数",
+      "raw": {
+        "all_integer": true,
+        "violations": []
+      }
+    }
+  },
+  "passed": 7,
+  "total": 7,
+  "pass_rate": 100.0,
+  "scores_assigned": [
+    {
+      "candidate_name": "褚十三",
+      "trait": "沟通能力",
+      "score": 85,
+      "evidence": "根据《面试评分规范》2.1节，81-100分区间要求\"表达极具说服力，能精准把握问题核心，善于使用比喻和类比\"。面试记录仅提及\"表达很好\"，缺乏具体行为细节（如逻辑结构、举例说明、互动质量等），信息支撑不足。基于现有信息调整为整数85分，但证据链不完整，建议补充具体的沟通行为表现以确认评分准确性。"
+    }
+  ]
+}
