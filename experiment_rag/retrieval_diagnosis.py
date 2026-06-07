@@ -29,8 +29,22 @@ load_dotenv()
 
 from experiment_rag.config import (
     CHROMA_DB_PATH, DEFAULT_CHUNK_SIZE, DEFAULT_TOP_K,
-    LLM_MODEL, SIMILARITY_THRESHOLD,
+    LLM_MODEL, SIMILARITY_THRESHOLD, PHOENIX_ENDPOINT,
 )
+
+_tracer = None
+if os.getenv("ENABLE_PHOENIX_TRACING", "").lower() in ("true", "1", "yes"):
+    from opentelemetry import trace as otel_trace
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    otel_trace.set_tracer_provider(TracerProvider())
+    otel_trace.get_tracer_provider().add_span_processor(
+        SimpleSpanProcessor(OTLPSpanExporter(endpoint=PHOENIX_ENDPOINT))
+    )
+    _tracer = otel_trace.get_tracer("retrieval_diagnosis")
+    from openinference.instrumentation.openai import OpenAIInstrumentor
+    OpenAIInstrumentor().instrument()
 
 TRICKY_QUERIES = [
     {
@@ -80,7 +94,7 @@ def _judge_relevance(query: str, chunk_text: str) -> dict:
     # 优先使用 LLM 评判，失败则回退到启发式
     try:
         from openai import OpenAI
-        client = OpenAI(timeout=10)
+        client = OpenAI(timeout=60)
         prompt = f"""你是一个检索质量评判专家。
 用户查询: "{query}"
 检索到的文档块: ---
@@ -91,11 +105,11 @@ def _judge_relevance(query: str, chunk_text: str) -> dict:
  "completeness": <0-10>, "noise_level": <0-10>,
  "reason": "<简要原因>", "is_retrieval_failure": <true/false>}}"""
         resp = client.chat.completions.create(
-            model="qwen2.5-7b",
+            model=LLM_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
             max_tokens=150,
-            timeout=8,
+            timeout=30,
         )
         content = resp.choices[0].message.content or "{}"
         try:
@@ -130,7 +144,7 @@ def _judge_relevance(query: str, chunk_text: str) -> dict:
     is_noise_chunk = any(t in chunk_lower for t in noise_terms)
 
     if is_mcp_query and is_mcp_chunk:
-        score = max(5, kw_score)
+        score = max(7, kw_score)
         is_failure = False
         reason = "MCP 术语匹配(启发式)"
     elif is_mcp_query and is_noise_chunk:
@@ -138,13 +152,13 @@ def _judge_relevance(query: str, chunk_text: str) -> dict:
         is_failure = True
         reason = "噪声文档(启发式)"
     else:
-        score = min(5, kw_score)
+        score = min(4, kw_score)
         is_failure = score < 3
         reason = "弱匹配(启发式)"
 
     return {
         "score": score, "semantic_match": score,
-        "completeness": min(4, score), "noise_level": 8 if is_noise_chunk else 3,
+        "completeness": max(5, score), "noise_level": 8 if is_noise_chunk else 3,
         "reason": reason, "is_retrieval_failure": is_failure,
     }
 
@@ -202,61 +216,103 @@ def diagnose_retrieval(
             print(f"\n[{qi+1}/{len(queries)}] 查询: {query}")
             print(f"  陷阱: {q_info['trap']}")
 
-        chunks = _retrieve(query, chunk_size, top_k)
-        report["total_chunks_examined"] += len(chunks)
+        def _process_query(query, q_info):
+            chunks = _retrieve(query, chunk_size, top_k)
+            report["total_chunks_examined"] += len(chunks)
 
-        query_detail = {
-            "query": query,
-            "expected_domain": q_info["expected_domain"],
-            "retrieved": [],
-            "failure_count": 0,
-        }
-
-        for ci, chunk in enumerate(chunks):
-            judgement = _judge_relevance(query, chunk["text"])
-
-            is_failure = (
-                chunk["doc_type"] == "noise" or
-                judgement.get("is_retrieval_failure", False) or
-                judgement.get("score", 5) < 5
-            )
-
-            if is_failure:
-                report["retrieval_failures"] += 1
-                query_detail["failure_count"] += 1
-                if chunk["doc_type"] == "noise":
-                    report["noise_contamination"] += 1
-
-            item = {
-                "rank": ci + 1,
-                "source": f"{chunk['title']} ({chunk['doc_type']})",
-                "similarity_score": chunk["score"],
-                "judgement_score": judgement.get("score", 0),
-                "is_failure": is_failure,
-                "failure_reason": "",
+            query_detail = {
+                "query": query,
+                "expected_domain": q_info["expected_domain"],
+                "retrieved": [],
+                "failure_count": 0,
             }
 
-            if is_failure:
-                reasons = []
-                if chunk["doc_type"] == "noise":
-                    reasons.append("噪声文档污染")
-                if judgement.get("semantic_match", 0) < 5:
-                    reasons.append("语义不匹配")
-                if judgement.get("completeness", 0) < 3:
-                    reasons.append("信息碎片化(分块不当)")
-                item["failure_reason"] = "; ".join(reasons)
+            for ci, chunk in enumerate(chunks):
+                def _process_chunk(chunk):
+                    judgement = _judge_relevance(query, chunk["text"])
 
-            query_detail["retrieved"].append(item)
+                    is_failure = (
+                        chunk["doc_type"] == "noise" or
+                        judgement.get("is_retrieval_failure", False) or
+                        judgement.get("score", 5) < 5
+                    )
 
-            if verbose:
-                status = "❌ 失效" if is_failure else "✅ 有效"
-                print(f"  [{ci+1}] {item['source']} "
-                      f"sim={item['similarity_score']:.3f} "
-                      f"judge={item['judgement_score']} {status}")
-                if is_failure:
-                    print(f"       原因: {item['failure_reason']}")
+                    if _tracer:
+                        judge_span = otel_trace.get_current_span()
+                        judge_span.set_attributes({
+                            "score": judgement.get("score", 0),
+                            "is_failure": is_failure,
+                            "verdict": "失效" if is_failure else "有效",
+                        })
+                        if is_failure:
+                            judge_span.set_attribute("failure_reason",
+                                "; ".join([r for r in [
+                                    "噪声文档污染" if chunk["doc_type"] == "noise" else "",
+                                    "语义不匹配" if judgement.get("semantic_match", 0) < 5 else "",
+                                    "信息碎片化" if judgement.get("completeness", 0) < 3 else "",
+                                ] if r]))
 
-        report["details"].append(query_detail)
+                    if is_failure:
+                        report["retrieval_failures"] += 1
+                        query_detail["failure_count"] += 1
+                        if chunk["doc_type"] == "noise":
+                            report["noise_contamination"] += 1
+
+                    item = {
+                        "rank": ci + 1,
+                        "source": f"{chunk['title']} ({chunk['doc_type']})",
+                        "similarity_score": chunk["score"],
+                        "judgement_score": judgement.get("score", 0),
+                        "is_failure": is_failure,
+                        "failure_reason": "",
+                    }
+
+                    if is_failure:
+                        reasons = []
+                        if chunk["doc_type"] == "noise":
+                            reasons.append("噪声文档污染")
+                        if judgement.get("semantic_match", 0) < 5:
+                            reasons.append("语义不匹配")
+                        if judgement.get("completeness", 0) < 3:
+                            reasons.append("信息碎片化(分块不当)")
+                        item["failure_reason"] = "; ".join(reasons)
+
+                    query_detail["retrieved"].append(item)
+
+                    if verbose:
+                        status = "❌ 失效" if is_failure else "✅ 有效"
+                        print(f"  [{ci+1}] {item['source']} "
+                              f"sim={item['similarity_score']:.3f} "
+                              f"judge={item['judgement_score']} {status}")
+                        if is_failure:
+                            print(f"       原因: {item['failure_reason']}")
+                    return query_detail
+
+                if _tracer:
+                    with _tracer.start_as_current_span("judge_relevance", attributes={
+                        "chunk_title": chunk["title"],
+                        "chunk_doc_type": chunk["doc_type"],
+                        "similarity": chunk["score"],
+                    }):
+                        _process_chunk(chunk)
+                else:
+                    _process_chunk(chunk)
+            return query_detail
+
+        if _tracer:
+            with _tracer.start_as_current_span("trap_query", attributes={
+                "query": query[:100], "trap": q_info["trap"],
+                "expected_domain": q_info["expected_domain"],
+            }) as query_span:
+                query_detail = _process_query(query, q_info)
+                query_span.set_attributes({
+                    "retrieved_chunks": len(query_detail["retrieved"]),
+                    "top_k": top_k,
+                })
+                report["details"].append(query_detail)
+        else:
+            query_detail = _process_query(query, q_info)
+            report["details"].append(query_detail)
         time.sleep(1)
 
     report["failure_rate"] = round(
@@ -305,6 +361,41 @@ def print_report(report: dict):
     if report["failure_rate"] > 30:
         print(f"  ⚠️ 检索失效率高 ({report['failure_rate']}%)")
         print(f"     建议: 引入重排(Reranking)或调整 chunk_size")
+
+    # ── 噪声文档污染详情 ──
+    noise_blocks = []
+    for d in report["details"]:
+        for item in d["retrieved"]:
+            if "噪声文档污染" in item.get("failure_reason", ""):
+                noise_blocks.append(
+                    f"  {item['source']}  sim={item['similarity_score']:.3f}  "
+                    f"judge={item['judgement_score']}"
+                )
+    if noise_blocks:
+        print(f"\n\033[1m🔍 噪声文档污染详情\033[0m ({len(noise_blocks)} 个)")
+        print(f"  根因: 噪声文档与 MCP 共享术语 → Bi-Encoder 无法区分语义")
+        for nb in noise_blocks[:10]:
+            print(nb)
+        if len(noise_blocks) > 10:
+            print(f"  ... 还有 {len(noise_blocks) - 10} 个")
+
+    # ── 分块碎片化详情 ──
+    frag_blocks = []
+    for d in report["details"]:
+        for item in d["retrieved"]:
+            if "信息碎片化" in item.get("failure_reason", ""):
+                frag_blocks.append(
+                    f"  {item['source']}  sim={item['similarity_score']:.3f}  "
+                    f"judge={item['judgement_score']}"
+                )
+    if frag_blocks:
+        print(f"\n\033[1m📏 分块碎片化详情\033[0m ({len(frag_blocks)} 个)")
+        print(f"  根因: 固定 {report['chunk_size']} 字符分块在句子中间截断 → 信息不完整")
+        print(f"  建议: 增大 chunk_size 或使用 semantic 分块策略")
+        for fb in frag_blocks[:8]:
+            print(fb)
+        if len(frag_blocks) > 8:
+            print(f"  ... 还有 {len(frag_blocks) - 8} 个")
 
 
 def main():

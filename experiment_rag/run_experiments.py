@@ -156,7 +156,9 @@ def experiment_2B():
     print("\nStep 2: 运行检索失效诊断")
     run_step("检索失效诊断",
              [sys.executable, "experiment_rag/retrieval_diagnosis.py",
-              "--chunk-size", "512", "--output", "output/diagnosis_report.json"])
+              "--chunk-size", "512",
+              "--output", "output/diagnosis_report.json"],
+             timeout=600)
 
     print(f"\n{Colors.YELLOW}💡 思考:{Colors.RESET}")
     print("  哪些噪声文档被错误检索？为什么它们的相似度高？")
@@ -196,8 +198,8 @@ def experiment_2D():
     print(f"{'=' * 60}{Colors.RESET}")
     print("""
 对比"有重排"和"无重排"两种模式:
-  无重排: 检索 Top-3 → 直接生成
-  有重排: 检索 Top-20 → Cross-Encoder 重排 → 取 Top-3 生成
+  无重排: 检索 Top-5 → 直接生成
+  有重排: 检索 Top-20 → Cross-Encoder 重排 → 取 Top-5 生成
 """)
 
     if not _has_collections():
@@ -207,7 +209,8 @@ def experiment_2D():
 
     run_step("重排效果对比实验",
              [sys.executable, "experiment_rag/reranking_test.py",
-                   "--chunk-size", "512", "--output", "output/reranking_report.json"])
+              "--chunk-size", "512", "--output", "output/reranking_report.json"],
+             timeout=900)
 
     print(f"\n{Colors.YELLOW}💡 思考:{Colors.RESET}")
     print("  重排拯救了多少个查询？")

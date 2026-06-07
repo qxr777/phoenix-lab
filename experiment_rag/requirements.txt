@@ -19,3 +19,9 @@ pandas>=2.0.0
 # numpy 版本约束（兼容 torch 2.2.2）
 numpy<2
 
+# Phoenix 遥测
+opentelemetry-api>=1.24.0
+opentelemetry-sdk>=1.24.0
+opentelemetry-exporter-otlp-proto-http>=1.24.0
+openinference-instrumentation-openai>=0.1.0
+

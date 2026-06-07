@@ -95,6 +95,7 @@ def query_rag(
     question: str,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     top_k: int = DEFAULT_TOP_K,
+    generation_top_k: int | None = None,
     similarity_threshold: float = SIMILARITY_THRESHOLD,
     use_reranker: bool = USE_RERANKER,
     retrieval_only: bool = False,
@@ -176,7 +177,8 @@ def query_rag(
                 })
 
     # ── 可选: Cross-Encoder 重排 ──
-    if use_reranker and len(chunks) > top_k:
+    gen_k = generation_top_k or top_k
+    if use_reranker and len(chunks) > gen_k:
         reranker = _get_reranker()
         if reranker is not None:
             pairs = [(question, c["text"]) for c in chunks]
@@ -185,7 +187,7 @@ def query_rag(
                 c["rerank_score"] = round(float(scores[i]), 4)
             chunks.sort(key=lambda x: x["rerank_score"], reverse=True)
 
-    retrieved = chunks[:top_k]
+    retrieved = chunks[:gen_k]
 
     # ── Span 2: LLM 生成（或跳过）──
     llm_response = ""
