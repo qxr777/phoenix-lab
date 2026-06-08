@@ -24,14 +24,16 @@ load_dotenv()
 
 from experiment_rag.config import CHUNK_SIZE_VARIANTS, DEFAULT_TOP_K
 
+# 复用实验 2B 的陷阱查询 — 引入噪声干扰才能测出 chunk_size 差异
 BENCHMARK_QUERIES = [
-    "MCP v1 和 v2 的握手初始化有什么区别？",
-    "MCP 的流式响应是怎么实现的？",
-    "stdio 传输和 SSE 传输各自的优缺点？",
-    "MCP 协议中怎样获得可用工具列表？",
-    "MCP v2 新增的安全特性有哪些？",
-    "MCP 的帧协议是如何定义消息边界的？",
-    "MCP 中如何实现重连和错误恢复？",
+    "MCP 协议中的 handshake 和 WebSocket 的握手有什么区别？",
+    "JSON-RPC 格式的消息在传输层如何被封装？",
+    "MCP v2 新增了哪些与 v1 不同的特性？",
+    "stdio 传输方式的连接建立流程是怎样的？",
+    "API 协议中如何实现消息的帧格式和边界检测？",
+    "MCP 服务器和客户端之间如何进行能力协商？",
+    "长时间运行的工具调用如何报告进度？",
+    "SSE 流式传输在 MCP 协议中如何工作？",
 ]
 
 STRATEGIES = {

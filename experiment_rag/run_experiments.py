@@ -197,9 +197,9 @@ def experiment_2D():
     print("实验 2D：重排效果对比")
     print(f"{'=' * 60}{Colors.RESET}")
     print("""
-对比"有重排"和"无重排"两种模式:
-  无重排: 检索 Top-5 → 直接生成
-  有重排: 检索 Top-20 → Cross-Encoder 重排 → 取 Top-5 生成
+对比"有重排"和"无重排"两种模式下噪声文档被消除的情况:
+  无重排: 检索 Top-5 → 统计噪声文档数
+  有重排: 检索 Top-20 → Cross-Encoder 重排 → 取 Top-5 → 统计噪声文档数
 """)
 
     if not _has_collections():
@@ -210,11 +210,12 @@ def experiment_2D():
     run_step("重排效果对比实验",
              [sys.executable, "experiment_rag/reranking_test.py",
               "--chunk-size", "512", "--output", "output/reranking_report.json"],
-             timeout=900)
+             timeout=180)
 
     print(f"\n{Colors.YELLOW}💡 思考:{Colors.RESET}")
-    print("  重排拯救了多少个查询？")
-    print("  为什么 Cross-Encoder 比 Bi-Encoder 更准确但更慢？")
+    print("  Cross-Encoder 消除了多少个噪声文档？")
+    print("  哪些查询从'有噪声'变成'零噪声'？")
+    print("  为什么 Cross-Encoder 能识别噪声而 Bi-Encoder 不能？")
 
 
 def experiment_2E():

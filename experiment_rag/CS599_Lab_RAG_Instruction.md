@@ -28,9 +28,9 @@
 | 阶段 | 核心任务 | 关键工具 | 产出 |
 |------|----------|----------|------|
 | **2A** | 将文档向量和查询向量降维到 3D 空间，可视化聚集状态 | UMAP + Plotly | 交互式 3D 散点图 (HTML) |
-| **2B** | 检测"相似≠相关"的检索失效案例，诊断根因 | LLM-as-Judge | 失效诊断报告 |
-| **2C** | 对比 4 种 chunk_size 对检索精度和幻觉率的影响 | ChromaDB 多集合 | 对比矩阵 |
-| **2D** | 深入理解 Bi-Encoder / Cross-Encoder 两阶段检索原理，验证重排效果 | ms-marco-MiniLM | 重排对比报告 |
+| **2B** | 检测"相似≠相关"的检索失效案例，诊断根因 | LLM-as-Judge + Phoenix OTLP Trace | 失效诊断报告 + 噪声/分块分析 |
+| **2C** | 对比 4 种 chunk_size 对检索质量的影响（使用与 2B 相同的 8 条陷阱查询） | ChromaDB 多集合（cs256/512/1024/2048） | 分块对比矩阵 |
+| **2D** | 统计 Cross-Encoder 消除了多少噪声文档，验证两阶段检索的过滤效果 | Cross-Encoder + doc_type 计数 | 噪声消除对比报告 |
 | **2E** ★ | 对比 Dense/Sparse/Hybrid 三种检索模式；深入理解 RRF 和分数融合的原理差异；通过网格搜索实验确定最优参数 | BM25 + RRF/分数融合 | 混合检索对比报告 + 参数敏感性矩阵 |
 
 ### 1.2 知识库设计
@@ -68,7 +68,7 @@
 
 ```bash
 cd phoenix_lab
-pip install -r requirements_rag.txt
+pip install -r experiment_rag/requirements.txt
 ```
 
 首次运行会下载 `all-MiniLM-L6-v2` (~80MB)。
@@ -149,12 +149,18 @@ open experiment_rag/output/embedding_umap_3d.html
 ### 4.2 操作步骤
 
 ```bash
+# 运行检索失效诊断
 python experiment_rag/run_experiments.py -e 2B
+
+# 启用 Phoenix 遥测（可在 :6006 追踪每次 Judge 调用）
+ENABLE_PHOENIX_TRACING=true python experiment_rag/run_experiments.py -e 2B
 ```
+
+> **Phoenix Trace 结构**：2B 通过 `OpenAIInstrumentor` 自动追踪所有 LLM 调用。在 Phoenix UI 中可以展开 `trap_query` → `judge_relevance` → `openai.chat.completions.create` 的完整树形调用链，查看每次 Judge 判定的 score、verdict、failure_reason。
 
 ### 4.3 预期结果
 
-运行后会输出类似这样的诊断：
+运行后会输出逐查询诊断 + 失效模式统计 + 噪声/分块详情：
 
 ```
 📊 检索失效诊断报告
@@ -166,6 +172,13 @@ python experiment_rag/run_experiments.py -e 2B
   噪声文档污染: 6 次 (50%)
   语义不匹配: 4 次 (33%)
   信息碎片化(分块不当): 2 次 (17%)
+
+🔍 噪声文档污染详情 (6 个)
+  根因: 噪声文档与 MCP 共享术语 → Bi-Encoder 无法区分语义
+
+📏 分块碎片化详情 (2 个)
+  根因: 固定 512 字符分块在句子中间截断 → 信息不完整
+  建议: 增大 chunk_size 或使用 semantic 分块策略
 
   💡 核心发现:
   ⚠️ 噪声文档污染严重 —— 建议: 提高相似度阈值
@@ -192,7 +205,9 @@ python experiment_rag/run_experiments.py -e 2B
 python experiment_rag/run_experiments.py -e 2C
 ```
 
-### 5.3 预期输出
+> **查询说明**：2C 的 8 条基准查询复用 2B 的陷阱查询——每条都包含共享关键词/概念重叠，能有效测出不同 chunk_size 对噪声过滤的影响。
+
+预期输出示例：
 
 ```
 📊 分块策略对比报告: 固定长度分块
@@ -223,7 +238,9 @@ Chunk       准确率    完整度    幻觉分    噪声
 
 ### 6.1 目标
 
-验证 Cross-Encoder Reranker 能否从"过度检索"中拯救质量。
+验证 Cross-Encoder 能否将噪声文档从 Top-5 检索结果中**踢出去**——通过直接对比"无重排"和"有重排"两种模式下 Top-5 中的噪声文档数量来衡量。
+
+> **为什么用噪声计数而非 LLM Judge？** Cross-Encoder 的工作本质是重新排序——把噪声文档降权，把目标文档升权。直接统计 Top-5 中文档的 `doc_type` metadata（target/noise）比用 LLM 评估答案质量更直接、更可靠、更快（0 次 LLM 调用，30 秒完成）。
 
 ### 6.2 核心原理：Bi-Encoder vs Cross-Encoder
 
@@ -324,25 +341,46 @@ Bi-Encoder 返回的 Top-20 候选
 python experiment_rag/run_experiments.py -e 2D
 ```
 
-此次实验会运行 `reranking_test.py`，对每一查询分别测试无重排和有重排两种情况，然后用量化指标对比差异。
+此次实验会运行 `reranking_test.py`，对 8 条陷阱查询（与 2B 相同）分别测试无重排和有重排两种模式，统计 Top-5 中的噪声文档数量并直接对比。
 
 ### 6.4 预期结果解读
 
-运行后，关注输出中的这些关键指标：
+运行后，控制台日志分三段：
 
 ```
-平均幻觉分          5.2/10         2.1/10       -3.1
-幻觉次数                 4             1         -3
+[无重排]                             [有重排]
+  1/8: 🚫 noise=3 (WebSocket实...    1/8: 🏆 noise=0 (全部清除!)
+  2/8: ✅ noise=0                    2/8: ✅ noise=0
+  3/8: 🚫 noise=1 (REST API...]      3/8: 🏆 noise=0 (全部清除!)
+
+📊 重排效果对比报告 — 噪声文档消除
+
+  指标                      无重排    有重排    消除
+  Top-5 噪声文档总数            9        6      3
+  噪声查询数                   4        4      1
+
+  查询                    无重排    有重排    消除
+  陷阱查询1                🚫 4    🏆 1      3 🏆
+  ...
+
+  🏆 Cross-Encoder 消除了 3 个噪声文档 | 拯救了 1/8 个查询 (12.5%)
+
+  🔍 被拯救查询详情 (Cross-Encoder 踢出了哪些噪声)
+  📝 查询1: "..."
+    无重排: 🚫 4 个噪声 → WebSocket实时通信, WebSocket...
+    有重排: 🏆 0 个噪声 (全部清除!)
 ```
 
-- **"被拯救的查询"**：有重排 → 幻觉消失（`is_hallucination: true → false`）。这类查询在 Bi-Encoder 阶段被噪声文档的高相似度误导，Cross-Encoder 介入后正确识别了噪声
-- **"无变化的查询"**：有重排和无重排结果相同（两个模型对同一文档的质量判断一致）
+**关注**：
+- **🚫** 查询：Top-5 中含有噪声文档
+- **🏆** 查询：Cross-Encoder 消除噪声后被"拯救"的查询（噪声数减少）
+- **消除数**：重排后减少的噪声文档数量
 
 ### 6.5 练习任务
 
-1. **基础**：记录有/无重排的幻觉率和准确率差异
-2. **进阶**：找出至少 1 个被重排"拯救"的查询（无重排时有幻觉，有重排时无幻觉）。在该查询上分析：Bi-Encoder 把哪份噪声文档排到了前面？Cross-Encoder 把它降到了第几名？为什么它能识别出这是噪声？
-3. **挑战**：在 `reranking_test.py` 中修改 `TRICKY_QUERIES`，添加一个你设计的查询，使 Bi-Encoder 产生幻觉但 Cross-Encoder 能修正
+1. **基础**：记录重排前后噪声文档总数和被拯救的查询数
+2. **进阶**：找出至少 1 个被 Cross-Encoder 拯救的查询。分析：Bi-Encoder 为什么把噪声文档排到了前面？Cross-Encoder 是如何识别它为噪声的（共享关键词 vs 语义理解）？
+3. **挑战**：在 `reranking_test.py` 中修改 `TEST_QUERIES`，添加一个你设计的查询，使 Bi-Encoder 产生高噪声但 Cross-Encoder 能消除
 
 ---
 
@@ -528,7 +566,7 @@ score_fusion(dense_ranked, sparse_ranked, alpha=0.7, top_k=5)
 ```
 ① 准备验证查询集
    至少 5-10 条查询，每条标注正确文档
-   （代码中已有 BENCHMARK_QUERIES，你也可以自行添加）
+   （代码中已有 8 条陷阱查询，与 2B/2C/2D 保持一致）
 
 ② 运行网格搜索
    python experiment_rag/hybrid_search.py --sensitivity
@@ -629,7 +667,7 @@ python experiment_rag/hybrid_search.py --sensitivity  # 参数网格搜索
 
 1. **向量相似度是"盲人摸象"**：高相似度不代表语义相关，噪声文档可能通过共享词汇获得高分。这是实验 2D 和 2E 要解决的核心问题。
 2. **分块策略是双刃剑**：太小→碎片化，太大→稀释。最佳尺寸取决于文档密度和查询类型。
-3. **两阶段检索（粗筛+精排）** 是工业界主流方案：Bi-Encoder 负责快速召回，Cross-Encoder 负责精准排序。详见实验 2D 的 6.2 节。
+3. **两阶段检索是降噪而非生成优化**：Cross-Encoder 通过逐对语义理解将 Bi-Encoder 误召的噪声文档降权，直接减少 Top-5 中的噪声数量。详见实验 2D 的 6.2 节。
 4. **可观测性是诊断的前提**：没有 UMAP 可视化，你永远不知道检索质量到底如何。
 5. **参数不能靠"网上查"**：RRF 的 k 和加权融合的 α 的最优值取决于**你的数据**——文档类型、查询分布、噪声特征。唯一确定最优值的方法是在你自己的验证集上做网格搜索。详见实验 2E 的 7.6 节。
 
@@ -640,7 +678,7 @@ python experiment_rag/hybrid_search.py --sensitivity  # 参数网格搜索
 | **1. Embedding 可视化** | 附上 UMAP 3D 截图，标注各文档簇和查询点，分析分布特征 |
 | **2. 检索失效分析** | 列 3 个"相似≠相关"案例，分析每个失效的根因 |
 | **3. 分块策略** | 以表格呈现 4 种 chunk_size 的对比结果，分析最佳尺寸 |
-| **4. 重排对比** | 解释 Bi-Encoder / Cross-Encoder 两阶段的原理。列出有/无重排的幻觉率差异，标注至少 1 个被"拯救"的查询并分析原因 |
+| **4. 重排对比** | 解释 Bi-Encoder / Cross-Encoder 两阶段的原理。列出重排前后 Top-5 噪声文档总数的差异，标注至少 1 个被"拯救"的查询并说明 Cross-Encoder 踢出了哪些噪声文档 |
 | **5. 混合检索** | 对比 Dense vs Sparse vs Hybrid 的检索结果。通过 `--sensitivity` 网格搜索确定最优 (k, α)，**解释为什么最优参数是这个值**（联系数据特征和查询类型分析） |
 | **6. 改进建议** | 基于实验数据，提出至少一条改进 RAG 质量的建议 |
 
